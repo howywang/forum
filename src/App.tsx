@@ -113,6 +113,7 @@ type Member = {
   avatar: string
   xp: number
   joinedAt: string
+  demo?: boolean
 }
 
 type AuthForm = {
@@ -260,10 +261,10 @@ const hotTags = ['照片辨識', '犬種確認', '急診', '領養', '走失', '
 const assistantDisclaimer = '此為規則式寵物知識庫建議，不能取代獸醫診斷；若症狀嚴重或快速惡化，請直接聯絡獸醫。'
 
 const seedMembers: Member[] = [
-  { id: 1, name: 'Howy', password: 'demo', avatar: 'H', xp: 160, joinedAt: '今天' },
-  { id: 2, name: 'Mia', password: 'demo', avatar: 'M', xp: 110, joinedAt: '今天' },
-  { id: 3, name: '阿哲', password: 'demo', avatar: '哲', xp: 80, joinedAt: '昨天' },
-  { id: 4, name: '小雨中途', password: 'demo', avatar: '雨', xp: 220, joinedAt: '昨天' },
+  { id: 1, name: 'Howy', password: 'demo', avatar: 'H', xp: 160, joinedAt: '今天', demo: true },
+  { id: 2, name: 'Mia', password: 'demo', avatar: 'M', xp: 110, joinedAt: '今天', demo: true },
+  { id: 3, name: '阿哲', password: 'demo', avatar: '哲', xp: 80, joinedAt: '昨天', demo: true },
+  { id: 4, name: '小雨中途', password: 'demo', avatar: '雨', xp: 220, joinedAt: '昨天', demo: true },
 ]
 
 const emptyDraft: Draft = {
@@ -613,7 +614,8 @@ function App() {
       return
     }
 
-    if (members.some((member) => member.name === name)) {
+    const existingMember = members.find((member) => member.name === name)
+    if (existingMember && !existingMember.demo) {
       setAuthError('這個暱稱已被註冊')
       return
     }
@@ -626,9 +628,16 @@ function App() {
       xp: 0,
       joinedAt: '剛剛',
     }
-    setMembers((current) => [member, ...current])
+    setMembers((current) => [member, ...current.filter((item) => item.name !== name)])
     setCurrentMemberId(member.id)
     setAuthOpen(false)
+  }
+
+  function resetLocalMembers() {
+    setMembers(seedMembers)
+    setCurrentMemberId(null)
+    setAuthForm(emptyAuthForm)
+    setAuthError('已重置本機會員資料')
   }
 
   function submitThread(event: React.FormEvent<HTMLFormElement>) {
@@ -1168,6 +1177,9 @@ function App() {
             <button type="submit" className="primary-button">
               {authMode === 'login' ? <LogIn size={17} /> : <UserPlus size={17} />}
               {authMode === 'login' ? '登入' : '完成註冊'}
+            </button>
+            <button type="button" className="secondary-button" onClick={resetLocalMembers}>
+              重置本機會員資料
             </button>
             <button
               type="button"
