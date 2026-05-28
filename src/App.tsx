@@ -473,7 +473,7 @@ function App() {
           </span>
           <div>
             <strong>PetTalk 寵物論壇</strong>
-            <span>Discuz 風格討論區 + 瀏覽器端照片辨識</span>
+            <span>米格魯寵物大學 AI 進化版</span>
           </div>
         </div>
         <label className="search-box">
