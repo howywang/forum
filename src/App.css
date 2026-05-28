@@ -30,6 +30,7 @@
 .section-title,
 .reply-meta,
 .member-list span,
+.member-list button,
 .progress-panel div {
   display: flex;
   align-items: center;
@@ -76,7 +77,8 @@
 .composer textarea,
 .composer select,
 .reply-form textarea,
-.auth-modal input {
+.auth-modal input,
+.profile-modal input {
   width: 100%;
   border: 0;
   color: #20201d;
@@ -100,6 +102,8 @@
   border: 1px solid #d8d1c2;
   border-radius: 8px;
   background: #fffefa;
+  cursor: pointer;
+  text-align: left;
 }
 
 .member-chip {
@@ -142,6 +146,11 @@ button {
 .tag-cloud button {
   border: 0;
   cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 .primary-button,
@@ -206,8 +215,9 @@ h1 {
   max-width: 980px;
   margin-top: 10px;
   color: #1c1b18;
-  font-size: clamp(34px, 4.8vw, 60px);
-  line-height: 1;
+  font-size: clamp(22px, 2.45vw, 36px);
+  line-height: 1.08;
+  white-space: nowrap;
 }
 
 .forum-stats {
@@ -260,6 +270,52 @@ h1 {
   color: #28251f;
   text-align: left;
   background: transparent;
+}
+
+.admin-board-form {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d8d1c2;
+  border-radius: 8px;
+  background: #fffefa;
+}
+
+.admin-board-form strong {
+  color: #20201d;
+}
+
+.admin-board-form input {
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #d8d1c2;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.admin-board-form button,
+.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.admin-board-form button {
+  color: #fff;
+  background: #24786f;
+}
+
+.danger-button {
+  padding: 0 12px;
+  color: #fff;
+  background: #b74d37;
 }
 
 .board-list button svg {
@@ -460,6 +516,31 @@ h1 {
   margin-left: auto;
 }
 
+.profile-link,
+.name-link {
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.profile-link {
+  display: inline-flex;
+}
+
+.name-link {
+  display: block;
+  color: #20201d;
+  font-weight: 900;
+  text-align: left;
+}
+
+.name-link:hover,
+.member-list button:hover strong {
+  color: #24786f;
+}
+
 .avatar {
   display: inline-grid;
   width: 34px;
@@ -642,11 +723,18 @@ h1 {
   gap: 9px;
 }
 
-.member-list span {
+.member-list button {
   gap: 8px;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
 }
 
-.member-list > span > span:last-child {
+.member-list > button > span:last-child {
   display: grid;
   gap: 1px;
 }
@@ -677,7 +765,8 @@ h1 {
 }
 
 .composer,
-.auth-modal {
+.auth-modal,
+.profile-modal {
   display: grid;
   gap: 13px;
   width: min(760px, 100%);
@@ -686,11 +775,56 @@ h1 {
   padding: 18px;
 }
 
-.auth-modal {
+.auth-modal,
+.profile-modal {
   width: min(440px, 100%);
   border: 1px solid #ded8ca;
   border-radius: 8px;
   background: #fffefa;
+}
+
+.profile-modal {
+  width: min(520px, 100%);
+}
+
+.profile-summary {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid #e3dccf;
+  border-radius: 8px;
+  background: #f7f1e5;
+}
+
+.profile-summary strong,
+.profile-summary span,
+.profile-summary small {
+  display: block;
+}
+
+.profile-summary strong {
+  color: #24786f;
+  font-size: 18px;
+}
+
+.profile-summary span {
+  margin-top: 3px;
+  color: #20201d;
+  font-weight: 900;
+}
+
+.profile-summary small,
+.gift-panel small {
+  color: #6b655a;
+  line-height: 1.45;
+}
+
+.profile-edit,
+.gift-panel {
+  display: grid;
+  gap: 12px;
 }
 
 .modal-head {
@@ -767,7 +901,8 @@ h1 {
 }
 
 .composer label,
-.auth-modal label {
+.auth-modal label,
+.profile-modal label {
   display: grid;
   gap: 6px;
   color: #403b34;
@@ -779,7 +914,8 @@ h1 {
 .composer textarea,
 .composer select,
 .reply-form textarea,
-.auth-modal input {
+.auth-modal input,
+.profile-modal input {
   box-sizing: border-box;
   padding: 11px;
   border: 1px solid #d8d1c2;
@@ -882,7 +1018,7 @@ h1 {
 
 @media (max-width: 640px) {
   h1 {
-    font-size: 36px;
+    font-size: 22px;
   }
 
   .forum-stats,

@@ -6,9 +6,11 @@ import {
   Bookmark,
   Camera,
   Cat,
+  CirclePlus,
   Dog,
   Eye,
   Flame,
+  Gift,
   Heart,
   Home,
   ImageUp,
@@ -21,6 +23,7 @@ import {
   Reply,
   Search,
   Send,
+  Save,
   Shield,
   Stethoscope,
   Tags,
@@ -32,10 +35,8 @@ import {
 } from 'lucide-react'
 import './App.css'
 
-type BoardId = 'identify' | 'clinic' | 'daily' | 'adoption' | 'training' | 'lost'
-
 type Board = {
-  id: BoardId
+  id: string
   name: string
   description: string
   icon: typeof PawPrint
@@ -49,7 +50,7 @@ type Prediction = {
 
 type Thread = {
   id: number
-  boardId: BoardId
+  boardId: string
   title: string
   body: string
   author: string
@@ -82,7 +83,7 @@ type ThreadReply = {
 }
 
 type Draft = {
-  boardId: BoardId
+  boardId: string
   title: string
   body: string
   tags: string
@@ -94,7 +95,7 @@ type Draft = {
 type AssistantAdvice = {
   category: string
   urgency: '一般' | '注意' | '建議就醫' | '緊急'
-  boardId: BoardId
+  boardId: string
   tags: string[]
   reply: string
   disclaimer: string
@@ -109,11 +110,18 @@ type UploadState = {
 type Member = {
   id: number
   name: string
-  password: string
+  password?: string
   avatar: string
   xp: number
   joinedAt: string
   demo?: boolean
+  role?: 'admin' | 'member'
+  giftsReceived?: number
+}
+
+type BoardDraft = {
+  name: string
+  description: string
 }
 
 type AuthForm = {
@@ -122,9 +130,22 @@ type AuthForm = {
   avatar: string
 }
 
-const storageKey = 'pet-discuz-forum-v1'
+type ApiState = {
+  members: Member[]
+  boards: Board[]
+  threads: Thread[]
+  replies: ThreadReply[]
+}
 
-const boards: Board[] = [
+type AuthSession = {
+  token: string
+  member: Member
+}
+
+const storageKey = 'pet-discuz-forum-v1'
+const apiBase = import.meta.env.VITE_API_BASE?.replace(/\/$/, '')
+
+const defaultBoards: Board[] = [
   {
     id: 'identify',
     name: '照片辨識',
@@ -262,6 +283,7 @@ const assistantDisclaimer = '此為規則式寵物知識庫建議，不能取代
 
 const seedMembers: Member[] = [
   { id: 1, name: 'Howy', password: 'demo', avatar: 'H', xp: 160, joinedAt: '今天', demo: true },
+  { id: 100, name: 'HowyWang', password: 'admin', avatar: 'H', xp: 520, joinedAt: '今天', demo: true, role: 'admin' },
   { id: 2, name: 'Mia', password: 'demo', avatar: 'M', xp: 110, joinedAt: '今天', demo: true },
   { id: 3, name: '阿哲', password: 'demo', avatar: '哲', xp: 80, joinedAt: '昨天', demo: true },
   { id: 4, name: '小雨中途', password: 'demo', avatar: '雨', xp: 220, joinedAt: '昨天', demo: true },
@@ -278,6 +300,11 @@ const emptyAuthForm: AuthForm = {
   name: '',
   password: '',
   avatar: '',
+}
+
+const emptyBoardDraft: BoardDraft = {
+  name: '',
+  description: '',
 }
 
 function readFileAsDataUrl(file: File, onProgress?: (progress: number) => void) {
@@ -362,7 +389,7 @@ function createAssistantAdvice(input: string, recognition?: Thread['recognition'
   const tags = new Set<string>()
   let category = '一般照護'
   let urgency: AssistantAdvice['urgency'] = '一般'
-  let boardId: BoardId = recognition ? 'identify' : 'daily'
+  let boardId = recognition ? 'identify' : 'daily'
   let reply = '建議補充寵物年齡、品種、體重、症狀開始時間、食慾、精神、排便排尿與最近是否換食或外出，方便其他飼主協助判斷。'
 
   if (recognition) {
@@ -428,29 +455,56 @@ function createAssistantAdvice(input: string, recognition?: Thread['recognition'
 
 function loadState() {
   if (typeof window === 'undefined') {
-    return { threads: seedThreads, replies: seedReplies, members: seedMembers, currentMemberId: null as number | null }
+    return {
+      threads: seedThreads,
+      replies: seedReplies,
+      members: seedMembers,
+      boards: defaultBoards,
+      currentMemberId: null as number | null,
+      authToken: '',
+    }
   }
 
   const stored = window.localStorage.getItem(storageKey)
-  if (!stored) return { threads: seedThreads, replies: seedReplies, members: seedMembers, currentMemberId: null as number | null }
+  if (!stored) {
+    return {
+      threads: seedThreads,
+      replies: seedReplies,
+      members: seedMembers,
+      boards: defaultBoards,
+      currentMemberId: null as number | null,
+      authToken: '',
+    }
+  }
 
   try {
     const parsed = JSON.parse(stored) as Partial<{
       threads: Thread[]
       replies: ThreadReply[]
       members: Member[]
+      boards: Board[]
       currentMemberId: number | null
+      authToken: string
       userName: string
     }>
     return {
       threads: parsed.threads?.length ? parsed.threads : seedThreads,
       replies: parsed.replies?.length ? parsed.replies : seedReplies,
       members: parsed.members?.length ? parsed.members : seedMembers,
+      boards: parsed.boards?.length ? parsed.boards : defaultBoards,
       currentMemberId: parsed.currentMemberId ?? null,
+      authToken: parsed.authToken ?? '',
     }
   } catch {
     window.localStorage.removeItem(storageKey)
-    return { threads: seedThreads, replies: seedReplies, members: seedMembers, currentMemberId: null as number | null }
+    return {
+      threads: seedThreads,
+      replies: seedReplies,
+      members: seedMembers,
+      boards: defaultBoards,
+      currentMemberId: null as number | null,
+      authToken: '',
+    }
   }
 }
 
@@ -459,8 +513,11 @@ function App() {
   const [threads, setThreads] = useState<Thread[]>(() => initialState.threads)
   const [replies, setReplies] = useState<ThreadReply[]>(() => initialState.replies)
   const [members, setMembers] = useState<Member[]>(() => initialState.members)
+  const [boards, setBoards] = useState<Board[]>(() => initialState.boards)
   const [currentMemberId, setCurrentMemberId] = useState<number | null>(() => initialState.currentMemberId)
-  const [activeBoard, setActiveBoard] = useState<BoardId | 'all'>('all')
+  const [authToken, setAuthToken] = useState(() => initialState.authToken)
+  const [syncStatus, setSyncStatus] = useState(apiBase ? '正在連線後端' : '本機模式')
+  const [activeBoard, setActiveBoard] = useState<string | 'all'>('all')
   const [selectedThreadId, setSelectedThreadId] = useState(initialState.threads[0]?.id ?? 101)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft>(emptyDraft)
@@ -469,7 +526,12 @@ function App() {
   const [authOpen, setAuthOpen] = useState(false)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [authForm, setAuthForm] = useState<AuthForm>(emptyAuthForm)
+  const [boardDraft, setBoardDraft] = useState<BoardDraft>(emptyBoardDraft)
   const [authError, setAuthError] = useState('')
+  const [profileMemberId, setProfileMemberId] = useState<number | null>(null)
+  const [profileForm, setProfileForm] = useState<AuthForm>(emptyAuthForm)
+  const [profileError, setProfileError] = useState('')
+  const [giftMessage, setGiftMessage] = useState('')
   const [uploadState, setUploadState] = useState<UploadState>({
     progress: 0,
     status: '可選擇、拖放或貼上照片',
@@ -479,8 +541,48 @@ function App() {
   const modelRef = useRef<MobileNet | null>(null)
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ threads, replies, members, currentMemberId }))
-  }, [currentMemberId, members, replies, threads])
+    window.localStorage.setItem(storageKey, JSON.stringify({ threads, replies, members, boards, currentMemberId, authToken }))
+  }, [authToken, boards, currentMemberId, members, replies, threads])
+
+  useEffect(() => {
+    if (!apiBase) return
+    fetch(`${apiBase}/api/state`)
+      .then((response) => {
+        if (!response.ok) throw new Error('state failed')
+        return response.json() as Promise<ApiState>
+      })
+      .then((state) => {
+        setThreads(state.threads.length ? state.threads : seedThreads)
+        setReplies(state.replies)
+        setMembers(state.members.length ? state.members : seedMembers)
+        setBoards(state.boards.length ? state.boards.map((board) => ({ ...board, icon: PawPrint })) : defaultBoards)
+        setSyncStatus('已連線後端資料庫')
+      })
+      .catch(() => setSyncStatus('後端未連線，使用本機資料'))
+  }, [])
+
+  async function apiFetch<T>(path: string, init: RequestInit = {}) {
+    if (!apiBase) throw new Error('api not configured')
+    const response = await fetch(`${apiBase}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...init.headers,
+      },
+    })
+    if (!response.ok) throw new Error(await response.text())
+    return response.json() as Promise<T>
+  }
+
+  async function refreshState() {
+    if (!apiBase) return
+    const state = await apiFetch<ApiState>('/api/state')
+    setThreads(state.threads.length ? state.threads : seedThreads)
+    setReplies(state.replies)
+    setMembers(state.members.length ? state.members : seedMembers)
+    setBoards(state.boards.length ? state.boards.map((board) => ({ ...board, icon: PawPrint })) : defaultBoards)
+  }
 
   async function analyzeFile(file: File) {
     if (!file.type.startsWith('image/')) {
@@ -557,6 +659,7 @@ function App() {
   const SelectedBoardIcon = selectedBoard.icon
   const draftAssistant = createAssistantAdvice(`${draft.title} ${draft.body} ${draft.tags}`, draft.recognition)
   const currentMember = members.find((member) => member.id === currentMemberId) ?? null
+  const isAdmin = currentMember?.name === 'HowyWang' || currentMember?.role === 'admin'
   const displayName = currentMember?.name ?? '訪客飼主'
   const displayAvatar = currentMember?.avatar ?? avatarLabel(displayName)
   const displayLevel = memberLevel(currentMember?.xp ?? 0)
@@ -569,9 +672,85 @@ function App() {
       return [thread.title, thread.body, thread.author, ...thread.tags].join(' ').toLowerCase().includes(keyword)
     })
     .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.id - a.id)
+  const profileMember = members.find((member) => member.id === profileMemberId) ?? null
+  const profileLevel = memberLevel(profileMember?.xp ?? 0)
+  const profileIsSelf = Boolean(currentMember && profileMember && currentMember.id === profileMember.id)
 
-  function boardThreadCount(boardId: BoardId) {
+  function boardThreadCount(boardId: string) {
     return threads.filter((thread) => thread.boardId === boardId).length
+  }
+
+  function findMember(memberId: number | undefined, name: string) {
+    return members.find((member) => member.id === memberId) ?? members.find((member) => member.name === name)
+  }
+
+  function openProfile(member: Member | undefined | null) {
+    if (!member) return
+    setProfileMemberId(member.id)
+    setProfileError('')
+    setGiftMessage('')
+    setProfileForm({ name: member.name, password: '', avatar: member.avatar })
+  }
+
+  async function uploadProfileAvatar(file: File) {
+    if (!file.type.startsWith('image/')) return
+    const avatar = await readFileAsDataUrl(file)
+    setProfileForm((current) => ({ ...current, avatar }))
+  }
+
+  async function addBoard(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!isAdmin || !boardDraft.name.trim()) return
+
+    if (apiBase) {
+      try {
+        const result = await apiFetch<{ board: Board }>('/api/boards', {
+          method: 'POST',
+          body: JSON.stringify(boardDraft),
+        })
+        await refreshState()
+        setBoardDraft(emptyBoardDraft)
+        setActiveBoard(result.board.id)
+      } catch {
+        setSyncStatus('新增討論區失敗，請確認管理員登入狀態')
+      }
+      return
+    }
+
+    const id = `custom-${Date.now()}`
+    setBoards((current) => [
+      ...current,
+      {
+        id,
+        name: boardDraft.name.trim(),
+        description: boardDraft.description.trim() || '自訂討論區',
+        icon: PawPrint,
+        accent: '#24786f',
+      },
+    ])
+    setBoardDraft(emptyBoardDraft)
+    setActiveBoard(id)
+  }
+
+  async function deleteThread(threadId: number) {
+    if (!isAdmin) return
+
+    if (apiBase) {
+      try {
+        await apiFetch<{ ok: boolean }>(`/api/threads/${threadId}`, { method: 'DELETE' })
+        await refreshState()
+        const nextThread = threads.find((thread) => thread.id !== threadId)
+        if (nextThread) setSelectedThreadId(nextThread.id)
+      } catch {
+        setSyncStatus('刪除文章失敗，請確認管理員權限')
+      }
+      return
+    }
+
+    setThreads((current) => current.filter((thread) => thread.id !== threadId))
+    setReplies((current) => current.filter((reply) => reply.threadId !== threadId))
+    const nextThread = threads.find((thread) => thread.id !== threadId)
+    if (nextThread) setSelectedThreadId(nextThread.id)
   }
 
   function addMemberXp(amount: number) {
@@ -594,12 +773,30 @@ function App() {
     setAuthOpen(true)
   }
 
-  function submitAuth(event: React.FormEvent<HTMLFormElement>) {
+  async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = authForm.name.trim()
     const password = authForm.password.trim()
     if (!name || !password) {
       setAuthError('請輸入帳號與密碼')
+      return
+    }
+
+    if (apiBase) {
+      try {
+        const session = await apiFetch<AuthSession>(authMode === 'login' ? '/api/auth/login' : '/api/auth/register', {
+          method: 'POST',
+          body: JSON.stringify({ name, password, avatar: authForm.avatar || avatarLabel(name) }),
+        })
+        setAuthToken(session.token)
+        setCurrentMemberId(session.member.id)
+        setMembers((current) => [session.member, ...current.filter((member) => member.id !== session.member.id)])
+        setAuthOpen(false)
+        setAuthError('')
+        await refreshState()
+      } catch {
+        setAuthError(authMode === 'login' ? '帳號或密碼不正確' : '這個暱稱已被註冊')
+      }
       return
     }
 
@@ -633,14 +830,100 @@ function App() {
     setAuthOpen(false)
   }
 
+  async function submitProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!currentMember || profileMemberId !== currentMember.id) return
+    const name = profileForm.name.trim()
+    if (!name) {
+      setProfileError('暱稱不能空白')
+      return
+    }
+
+    if (apiBase) {
+      try {
+        const session = await apiFetch<AuthSession>(`/api/members/${currentMember.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            name,
+            password: profileForm.password.trim() || undefined,
+            avatar: profileForm.avatar || avatarLabel(name),
+          }),
+        })
+        setAuthToken(session.token)
+        setCurrentMemberId(session.member.id)
+        await refreshState()
+        setProfileError('會員資料已更新')
+      } catch {
+        setProfileError('更新失敗，暱稱可能已被使用')
+      }
+      return
+    }
+
+    const nextAvatar = profileForm.avatar || avatarLabel(name)
+    setMembers((current) =>
+      current.map((member) =>
+        member.id === currentMember.id
+          ? {
+              ...member,
+              name,
+              password: profileForm.password.trim() || member.password,
+              avatar: nextAvatar,
+            }
+          : member,
+      ),
+    )
+    setThreads((current) =>
+      current.map((thread) =>
+        thread.memberId === currentMember.id ? { ...thread, author: name, avatar: nextAvatar } : thread,
+      ),
+    )
+    setReplies((current) =>
+      current.map((reply) => (reply.memberId === currentMember.id ? { ...reply, author: name, avatar: nextAvatar } : reply)),
+    )
+    setProfileError('會員資料已更新')
+  }
+
+  async function sendGiftToProfile() {
+    const receiver = members.find((member) => member.id === profileMemberId)
+    if (!currentMember || !receiver || receiver.id === currentMember.id) return
+
+    if (apiBase) {
+      try {
+        await apiFetch<{ ok: boolean }>(`/api/members/${receiver.id}/gift`, {
+          method: 'POST',
+          body: JSON.stringify({ message: giftMessage }),
+        })
+        await refreshState()
+        setGiftMessage('')
+        setProfileError('禮物已送出，對方獲得 10 XP')
+      } catch {
+        setProfileError('送禮失敗，請先登入會員')
+      }
+      return
+    }
+
+    setMembers((current) =>
+      current.map((member) => {
+        if (member.id === receiver.id) {
+          return { ...member, xp: member.xp + 10, giftsReceived: (member.giftsReceived ?? 0) + 1 }
+        }
+        if (member.id === currentMember.id) return { ...member, xp: member.xp + 2 }
+        return member
+      }),
+    )
+    setGiftMessage('')
+    setProfileError('禮物已送出，對方獲得 10 XP')
+  }
+
   function resetLocalMembers() {
     setMembers(seedMembers)
+    setBoards(defaultBoards)
     setCurrentMemberId(null)
     setAuthForm(emptyAuthForm)
     setAuthError('已重置本機會員資料')
   }
 
-  function submitThread(event: React.FormEvent<HTMLFormElement>) {
+  async function submitThread(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft.title.trim() || !draft.body.trim()) return
     const assistant = createAssistantAdvice(`${draft.title} ${draft.body} ${draft.tags}`, draft.recognition)
@@ -662,6 +945,24 @@ function App() {
       assistant,
     }
 
+    if (apiBase) {
+      try {
+        const result = await apiFetch<{ id: number }>('/api/threads', {
+          method: 'POST',
+          body: JSON.stringify(thread),
+        })
+        await refreshState()
+        setSelectedThreadId(result.id)
+        setActiveBoard(thread.boardId)
+        setDraft(emptyDraft)
+        setUploadState({ progress: 0, status: '可選擇、拖放或貼上照片', busy: false })
+        setComposerOpen(false)
+      } catch {
+        setSyncStatus('發帖失敗，請稍後再試')
+      }
+      return
+    }
+
     setThreads((current) => [thread, ...current])
     setSelectedThreadId(thread.id)
     setActiveBoard(thread.boardId)
@@ -671,7 +972,7 @@ function App() {
     addMemberXp(20)
   }
 
-  function submitReply(event: React.FormEvent<HTMLFormElement>) {
+  async function submitReply(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selectedThread || !replyDraft.trim()) return
 
@@ -684,6 +985,20 @@ function App() {
       body: replyDraft.trim(),
       createdAt: '剛剛',
       likes: 0,
+    }
+
+    if (apiBase) {
+      try {
+        await apiFetch<{ ok: boolean }>('/api/replies', {
+          method: 'POST',
+          body: JSON.stringify(reply),
+        })
+        await refreshState()
+        setReplyDraft('')
+      } catch {
+        setSyncStatus('回覆失敗，請稍後再試')
+      }
+      return
     }
 
     setReplies((current) => [...current, reply])
@@ -712,13 +1027,13 @@ function App() {
             <Bell size={18} />
           </button>
           {currentMember ? (
-            <div className="member-chip">
+            <button type="button" className="member-chip" onClick={() => openProfile(currentMember)}>
               <Avatar avatar={currentMember.avatar} name={currentMember.name} size={30} />
               <span>
                 <strong>{currentMember.name}</strong>
                 <small>{displayLevel.name} · {currentMember.xp} XP</small>
               </span>
-            </div>
+            </button>
           ) : (
             <button type="button" className="secondary-button" onClick={() => openAuth('login')}>
               <LogIn size={17} />
@@ -731,7 +1046,15 @@ function App() {
               註冊
             </button>
           ) : (
-            <button type="button" className="icon-button" aria-label="登出" onClick={() => setCurrentMemberId(null)}>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="登出"
+              onClick={() => {
+                setCurrentMemberId(null)
+                setAuthToken('')
+              }}
+            >
               <LogOut size={18} />
             </button>
           )}
@@ -763,11 +1086,34 @@ function App() {
             <strong>{members.length}</strong>
             在線
           </span>
+          <span>
+            <strong>{apiBase ? 'D1' : 'Local'}</strong>
+            {syncStatus}
+          </span>
         </div>
       </section>
 
       <section className="forum-grid">
         <aside className="board-list">
+          {isAdmin && (
+            <form className="admin-board-form" onSubmit={addBoard}>
+              <strong>新增討論區</strong>
+              <input
+                value={boardDraft.name}
+                onChange={(event) => setBoardDraft((current) => ({ ...current, name: event.target.value }))}
+                placeholder="討論區名稱"
+              />
+              <input
+                value={boardDraft.description}
+                onChange={(event) => setBoardDraft((current) => ({ ...current, description: event.target.value }))}
+                placeholder="描述"
+              />
+              <button type="submit">
+                <CirclePlus size={16} />
+                新增
+              </button>
+            </form>
+          )}
           <button className={activeBoard === 'all' ? 'is-active' : ''} type="button" onClick={() => setActiveBoard('all')}>
             <Flame size={18} />
             <span>
@@ -864,9 +1210,21 @@ function App() {
                   </span>
                   <h2>{selectedThread.title}</h2>
                   <div className="author-row">
-                    <Avatar avatar={selectedThread.avatar} name={selectedThread.author} />
+                    <button
+                      type="button"
+                      className="profile-link"
+                      onClick={() => openProfile(findMember(selectedThread.memberId, selectedThread.author))}
+                    >
+                      <Avatar avatar={selectedThread.avatar} name={selectedThread.author} />
+                    </button>
                     <div>
-                      <strong>{selectedThread.author}</strong>
+                      <button
+                        type="button"
+                        className="name-link"
+                        onClick={() => openProfile(findMember(selectedThread.memberId, selectedThread.author))}
+                      >
+                        {selectedThread.author}
+                      </button>
                       <small>
                         {selectedThread.createdAt} · {memberLevel(members.find((member) => member.id === selectedThread.memberId)?.xp ?? 0).name}
                       </small>
@@ -874,6 +1232,11 @@ function App() {
                     <button type="button" className="icon-button" aria-label="收藏">
                       <Bookmark size={18} />
                     </button>
+                    {isAdmin && (
+                      <button type="button" className="danger-button" onClick={() => deleteThread(selectedThread.id)}>
+                        刪除文章
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -932,10 +1295,22 @@ function App() {
                 {threadReplies.length === 0 && <p className="muted">還沒有回覆，先回一樓。</p>}
                 {threadReplies.map((reply) => (
                   <article className="reply-card" key={reply.id}>
-                    <Avatar avatar={reply.avatar} name={reply.author} />
+                    <button
+                      type="button"
+                      className="profile-link"
+                      onClick={() => openProfile(findMember(reply.memberId, reply.author))}
+                    >
+                      <Avatar avatar={reply.avatar} name={reply.author} />
+                    </button>
                     <div>
                       <div className="reply-meta">
-                        <strong>{reply.author}</strong>
+                        <button
+                          type="button"
+                          className="name-link"
+                          onClick={() => openProfile(findMember(reply.memberId, reply.author))}
+                        >
+                          {reply.author}
+                        </button>
                         <small>
                           {reply.createdAt} · {memberLevel(members.find((member) => member.id === reply.memberId)?.xp ?? 0).name}
                         </small>
@@ -993,13 +1368,14 @@ function App() {
             </div>
             <div className="member-list">
               {members.map((member) => (
-                <span key={member.id}>
+                <button key={member.id} type="button" onClick={() => openProfile(member)}>
                   <Avatar avatar={member.avatar} name={member.name} size={28} />
                   <span>
                     <strong>{member.name}</strong>
                     <small>{memberLevel(member.xp).name} · {member.xp} XP</small>
+                    {member.role === 'admin' && <small>管理員</small>}
                   </span>
-                </span>
+                </button>
               ))}
             </div>
           </section>
@@ -1076,7 +1452,7 @@ function App() {
                 版塊
                 <select
                   value={draft.boardId}
-                  onChange={(event) => setDraft((current) => ({ ...current, boardId: event.target.value as BoardId }))}
+                  onChange={(event) => setDraft((current) => ({ ...current, boardId: event.target.value }))}
                 >
                   {boards.map((board) => (
                     <option value={board.id} key={board.id}>
@@ -1191,6 +1567,93 @@ function App() {
             >
               {authMode === 'login' ? '建立新帳號' : '已有帳號，前往登入'}
             </button>
+          </form>
+        </div>
+      )}
+
+      {profileMember && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="會員資料">
+          <form className="profile-modal" onSubmit={submitProfile}>
+            <div className="modal-head">
+              <div>
+                <span className="eyebrow">
+                  <User size={15} />
+                  會員資料
+                </span>
+                <h2>{profileMember.name}</h2>
+              </div>
+              <button type="button" className="icon-button" aria-label="關閉" onClick={() => setProfileMemberId(null)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <section className="profile-summary">
+              <Avatar avatar={profileMember.avatar} name={profileMember.name} size={72} />
+              <div>
+                <strong>{profileLevel.name}</strong>
+                <span>{profileMember.xp} XP · 收到 {profileMember.giftsReceived ?? 0} 份禮物</span>
+                <small>{profileMember.role === 'admin' ? '管理員' : '一般會員'} · 加入時間 {profileMember.joinedAt}</small>
+              </div>
+            </section>
+
+            {profileIsSelf ? (
+              <section className="profile-edit">
+                <label>
+                  暱稱
+                  <input
+                    value={profileForm.name}
+                    onChange={(event) => setProfileForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="會員暱稱"
+                  />
+                </label>
+                <label>
+                  新密碼
+                  <input
+                    type="password"
+                    value={profileForm.password}
+                    onChange={(event) => setProfileForm((current) => ({ ...current, password: event.target.value }))}
+                    placeholder="不修改可留空"
+                  />
+                </label>
+                <label className="avatar-uploader">
+                  大頭貼
+                  <span>
+                    <Avatar avatar={profileForm.avatar || avatarLabel(profileForm.name)} name={profileForm.name} size={56} />
+                    <small>會員可替換自己的大頭貼，發帖與回覆會同步更新。</small>
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (file) void uploadProfileAvatar(file)
+                    }}
+                  />
+                </label>
+                <button type="submit" className="primary-button">
+                  <Save size={17} />
+                  儲存會員資料
+                </button>
+              </section>
+            ) : (
+              <section className="gift-panel">
+                <label>
+                  送禮留言
+                  <input
+                    value={giftMessage}
+                    onChange={(event) => setGiftMessage(event.target.value)}
+                    placeholder="謝謝你的分享，送你一份禮物"
+                  />
+                </label>
+                <button type="button" className="primary-button" disabled={!currentMember} onClick={sendGiftToProfile}>
+                  <Gift size={17} />
+                  送禮給會員
+                </button>
+                {!currentMember && <small>登入後可以送禮，對方會增加 10 XP。</small>}
+              </section>
+            )}
+
+            {profileError && <p className="auth-error">{profileError}</p>}
           </form>
         </div>
       )}
