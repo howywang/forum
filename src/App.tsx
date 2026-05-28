@@ -20,6 +20,7 @@ import {
   Search,
   Send,
   Shield,
+  Stethoscope,
   Tags,
   Upload,
   User,
@@ -61,6 +62,7 @@ type Thread = {
     confidence: number
     predictions: Prediction[]
   }
+  assistant?: AssistantAdvice
   pinned?: boolean
 }
 
@@ -81,6 +83,16 @@ type Draft = {
   tags: string
   image?: string
   recognition?: Thread['recognition']
+  assistant?: AssistantAdvice
+}
+
+type AssistantAdvice = {
+  category: string
+  urgency: '一般' | '注意' | '建議就醫' | '緊急'
+  boardId: BoardId
+  tags: string[]
+  reply: string
+  disclaimer: string
 }
 
 type UploadState = {
@@ -226,6 +238,7 @@ const seedReplies: ThreadReply[] = [
 
 const hotTags = ['照片辨識', '犬種確認', '急診', '領養', '走失', '分離焦慮', '貓砂', '幼犬']
 const onlineMembers = ['Howy', 'Mia', '阿哲', '小雨中途', 'Neko', 'Sam', 'Noah']
+const assistantDisclaimer = '此為規則式寵物知識庫建議，不能取代獸醫診斷；若症狀嚴重或快速惡化，請直接聯絡獸醫。'
 
 const emptyDraft: Draft = {
   boardId: 'identify',
@@ -285,6 +298,76 @@ function petTagsFromPredictions(predictions: Prediction[]) {
   if (/rabbit|hare/.test(labels)) return { species: '兔子', tags: ['兔', '小寵'] }
   if (/bird|parrot|macaw|cockatoo/.test(labels)) return { species: '鳥類', tags: ['鳥', '鳥類辨識'] }
   return { species: '未確認寵物', tags: ['照片辨識', '需人工確認'] }
+}
+
+function createAssistantAdvice(input: string, recognition?: Thread['recognition']): AssistantAdvice {
+  const text = input.toLowerCase()
+  const has = (patterns: RegExp[]) => patterns.some((pattern) => pattern.test(text))
+  const tags = new Set<string>()
+  let category = '一般照護'
+  let urgency: AssistantAdvice['urgency'] = '一般'
+  let boardId: BoardId = recognition ? 'identify' : 'daily'
+  let reply = '建議補充寵物年齡、品種、體重、症狀開始時間、食慾、精神、排便排尿與最近是否換食或外出，方便其他飼主協助判斷。'
+
+  if (recognition) {
+    tags.add('照片辨識')
+    tags.add(recognition.species)
+    category = '照片辨識與品種確認'
+    boardId = 'identify'
+    reply = `照片 AI 初判為「${recognition.guess}」，信心分數 ${percent(
+      recognition.confidence,
+    )}。建議再補正面、側面、全身照，讓大家比對耳型、尾巴、毛色與體型。`
+  }
+
+  if (has([/不吃|沒食慾|食慾差|嘔吐|吐|拉肚子|血便|抽搐|呼吸|癱|無力|發燒|中毒|誤食/])) {
+    category = '健康症狀'
+    boardId = 'clinic'
+    urgency = '建議就醫'
+    tags.add('健康照護')
+    tags.add('症狀觀察')
+    reply =
+      '請先記錄症狀開始時間、嘔吐/腹瀉次數、是否喝水、精神狀態、排尿排便與是否誤食。若完全不吃超過 24 小時、呼吸異常、抽搐、血便、持續嘔吐或精神明顯變差，建議直接就醫。'
+  }
+
+  if (has([/急診|抽搐|呼吸困難|中毒|誤食.*藥|休克|昏倒|大量出血|癱瘓/])) {
+    urgency = '緊急'
+    tags.add('急診')
+    reply =
+      '這類描述可能需要立即處理。請優先聯絡急診獸醫，並準備照片、影片、誤食物包裝、症狀時間線與疫苗/用藥紀錄。'
+  }
+
+  if (has([/領養|送養|認養|中途|找家/])) {
+    category = '領養送養'
+    boardId = 'adoption'
+    urgency = '一般'
+    tags.add('領養')
+    reply = '建議補充年齡、性別、結紮/疫苗/驅蟲狀態、個性、是否親人親狗貓、所在地與認養條件。'
+  }
+
+  if (has([/走失|協尋|不見|跑走|目擊/])) {
+    category = '走失協尋'
+    boardId = 'lost'
+    urgency = '注意'
+    tags.add('協尋')
+    reply = '請補上最後目擊時間地點、項圈/晶片資訊、明顯特徵、聯絡方式與清楚照片。建議同步通知附近獸醫院、動保處與社群。'
+  }
+
+  if (has([/吠叫|咬|分離焦慮|訓練|尿尿|社會化|攻擊|怕人/])) {
+    category = '行為訓練'
+    boardId = 'training'
+    urgency = '一般'
+    tags.add('行為訓練')
+    reply = '建議描述觸發情境、頻率、持續時間、已嘗試方法與是否有影片。行為問題通常需要分階段訓練，避免用處罰加劇焦慮。'
+  }
+
+  return {
+    category,
+    urgency,
+    boardId,
+    tags: [...tags],
+    reply,
+    disclaimer: assistantDisclaimer,
+  }
 }
 
 function loadState() {
@@ -361,24 +444,27 @@ function App() {
       const main = predictions[0]
       const pet = petTagsFromPredictions(predictions)
       const autoTags = [...new Set(['照片辨識', ...pet.tags])]
+      const recognition = {
+        species: pet.species,
+        guess: main?.label ?? '未確認',
+        confidence: main?.probability ?? 0,
+        predictions,
+      }
+      const assistant = createAssistantAdvice('', recognition)
 
       setDraft((current) => ({
         ...current,
         boardId: 'identify',
         image: imageData,
-        tags: [...new Set([...current.tags.split(/[,\s，]+/).filter(Boolean), ...autoTags])].join(', '),
+        tags: [...new Set([...current.tags.split(/[,\s，]+/).filter(Boolean), ...autoTags, ...assistant.tags])].join(', '),
         title: current.title || `請協助確認：這張照片可能是${pet.species}`,
         body:
           current.body ||
           `AI 初步判斷為「${main?.label ?? '未確認'}」，信心分數 ${percent(
             main?.probability ?? 0,
           )}。想請大家協助確認品種、特徵或照護注意事項。`,
-        recognition: {
-          species: pet.species,
-          guess: main?.label ?? '未確認',
-          confidence: main?.probability ?? 0,
-          predictions,
-        },
+        recognition,
+        assistant,
       }))
       setUploadState({ progress: 100, status: '辨識完成，可直接發帖討論', busy: false })
     } catch {
@@ -405,6 +491,7 @@ function App() {
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? threads[0]
   const selectedBoard = boards.find((board) => board.id === selectedThread?.boardId) ?? boards[0]
   const SelectedBoardIcon = selectedBoard.icon
+  const draftAssistant = createAssistantAdvice(`${draft.title} ${draft.body} ${draft.tags}`, draft.recognition)
   const threadReplies = replies.filter((reply) => reply.threadId === selectedThread?.id)
   const visibleThreads = threads
     .filter((thread) => activeBoard === 'all' || thread.boardId === activeBoard)
@@ -422,10 +509,11 @@ function App() {
   function submitThread(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft.title.trim() || !draft.body.trim()) return
+    const assistant = createAssistantAdvice(`${draft.title} ${draft.body} ${draft.tags}`, draft.recognition)
 
     const thread: Thread = {
       id: Date.now(),
-      boardId: draft.boardId,
+      boardId: draft.boardId === emptyDraft.boardId && !draft.recognition ? assistant.boardId : draft.boardId,
       title: draft.title.trim(),
       body: draft.body.trim(),
       author: userName.trim() || '訪客飼主',
@@ -433,9 +521,10 @@ function App() {
       createdAt: '剛剛',
       views: 1,
       likes: 0,
-      tags: draft.tags.split(/[,\s，]+/).filter(Boolean).slice(0, 8),
+      tags: [...new Set([...draft.tags.split(/[,\s，]+/).filter(Boolean), ...assistant.tags])].slice(0, 8),
       image: draft.image,
       recognition: draft.recognition,
+      assistant,
     }
 
     setThreads((current) => [thread, ...current])
@@ -573,7 +662,9 @@ function App() {
                   key={thread.id}
                   onClick={() => setSelectedThreadId(thread.id)}
                 >
-                  {thread.image && <img src={thread.image} alt="" />}
+                  <span className="thread-thumb">
+                    {thread.image ? <img src={thread.image} alt="" /> : <PawPrint size={30} />}
+                  </span>
                   <span className="thread-main">
                     <span className="thread-meta" style={{ color: board.accent }}>
                       {board.name}
@@ -646,6 +737,21 @@ function App() {
                         <b>{percent(prediction.probability)}</b>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {selectedThread.assistant && (
+                  <div className={`assistant-box urgency-${selectedThread.assistant.urgency}`}>
+                    <div className="section-title">
+                      <Stethoscope size={16} />
+                      寵物知識庫助理
+                    </div>
+                    <div className="assistant-summary">
+                      <span>{selectedThread.assistant.category}</span>
+                      <strong>{selectedThread.assistant.urgency}</strong>
+                    </div>
+                    <p>{selectedThread.assistant.reply}</p>
+                    <small>{selectedThread.assistant.disclaimer}</small>
                   </div>
                 )}
 
@@ -785,6 +891,19 @@ function App() {
                 <strong>{uploadState.progress}%</strong>
               </div>
               <progress max={100} value={uploadState.progress} />
+            </div>
+
+            <div className={`assistant-box urgency-${draftAssistant.urgency}`}>
+              <div className="section-title">
+                <Stethoscope size={16} />
+                規則式寵物助理建議
+              </div>
+              <div className="assistant-summary">
+                <span>{draftAssistant.category}</span>
+                <strong>{draftAssistant.urgency}</strong>
+              </div>
+              <p>{draftAssistant.reply}</p>
+              <small>{draftAssistant.disclaimer}</small>
             </div>
 
             <div className="form-grid">

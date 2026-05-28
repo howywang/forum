@@ -318,10 +318,20 @@ h1 {
   box-shadow: 0 10px 22px rgba(36, 120, 111, 0.11);
 }
 
-.thread-row img {
+.thread-thumb {
+  display: grid;
   width: 78px;
   height: 78px;
+  place-items: center;
   border-radius: 8px;
+  color: #24786f;
+  background: #edf4ef;
+}
+
+.thread-thumb img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
   object-fit: cover;
   background: #151512;
 }
@@ -453,13 +463,72 @@ h1 {
   line-height: 1.7;
 }
 
-.recognition-box {
+.recognition-box,
+.assistant-box {
   display: grid;
   gap: 9px;
   margin-top: 16px;
   padding: 14px;
   border-radius: 8px;
   background: #f3ede1;
+}
+
+.assistant-box {
+  border: 1px solid #dfd1ae;
+  background: #fff6df;
+}
+
+.assistant-box.urgency-建議就醫,
+.assistant-box.urgency-緊急 {
+  border-color: #e0a08e;
+  background: #fff0ea;
+}
+
+.assistant-box.urgency-注意 {
+  border-color: #d7bc67;
+  background: #fff8d9;
+}
+
+.assistant-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.assistant-summary span {
+  color: #5c5448;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.assistant-summary strong {
+  padding: 4px 9px;
+  border-radius: 99px;
+  color: #fff;
+  background: #24786f;
+  font-size: 12px;
+}
+
+.assistant-box.urgency-建議就醫 .assistant-summary strong,
+.assistant-box.urgency-緊急 .assistant-summary strong {
+  background: #b74d37;
+}
+
+.assistant-box.urgency-注意 .assistant-summary strong {
+  color: #3c3211;
+  background: #e2c855;
+}
+
+.assistant-box p {
+  color: #403b34;
+  line-height: 1.65;
+}
+
+.assistant-box small {
+  color: #756b5b;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .section-title {
@@ -747,7 +816,7 @@ h1 {
     grid-template-columns: 64px minmax(0, 1fr);
   }
 
-  .thread-row img {
+  .thread-thumb {
     width: 64px;
     height: 64px;
   }
