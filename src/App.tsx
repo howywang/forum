@@ -1,190 +1,245 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { MobileNet } from '@tensorflow-models/mobilenet'
 import {
-  AlertTriangle,
   BarChart3,
+  Bell,
+  Bookmark,
   Camera,
   Cat,
-  CheckCircle,
-  Clock,
   Dog,
-  FileText,
-  HeartPulse,
-  History,
+  Eye,
+  Flame,
+  Heart,
+  Home,
   ImageUp,
-  Info,
   Loader,
   MessageCircle,
   PawPrint,
-  RefreshCw,
-  SearchCheck,
+  Plus,
+  Reply,
+  Search,
   Send,
   Shield,
-  Sparkles,
   Tags,
   Upload,
+  User,
+  Users,
   X,
 } from 'lucide-react'
 import './App.css'
+
+type BoardId = 'identify' | 'clinic' | 'daily' | 'adoption' | 'training' | 'lost'
+
+type Board = {
+  id: BoardId
+  name: string
+  description: string
+  icon: typeof PawPrint
+  accent: string
+}
 
 type Prediction = {
   label: string
   probability: number
 }
 
-type PetSpecies = 'dog' | 'cat' | 'rabbit' | 'bird' | 'fish' | 'reptile' | 'small-pet' | 'unknown'
-
-type Analysis = {
+type Thread = {
   id: number
-  image: string
-  fileName: string
-  createdAt: string
-  species: PetSpecies
-  speciesName: string
-  confidence: number
-  breedGuess: string
-  predictions: Prediction[]
-  tags: string[]
-}
-
-type CasePost = {
-  id: number
+  boardId: BoardId
   title: string
   body: string
-  image?: string
-  tags: string[]
-  replies: number
+  author: string
+  avatar: string
   createdAt: string
-}
-
-const storageKey = 'pet-lens-state-v1'
-const apiBase = import.meta.env.VITE_API_BASE?.replace(/\/$/, '')
-
-const petRules: Array<{
-  species: PetSpecies
-  name: string
-  icon: typeof Dog
-  keywords: string[]
+  views: number
+  likes: number
   tags: string[]
-}> = [
-  {
-    species: 'dog',
-    name: '狗狗',
-    icon: Dog,
-    keywords: [
-      'dog',
-      'terrier',
-      'retriever',
-      'poodle',
-      'chihuahua',
-      'corgi',
-      'husky',
-      'malamute',
-      'beagle',
-      'spaniel',
-      'collie',
-      'shepherd',
-      'mastiff',
-      'hound',
-      'boxer',
-      'pug',
-      'samoyed',
-      'dalmatian',
-      'shih-tzu',
-      'schnauzer',
-      'doberman',
-      'rottweiler',
-    ],
-    tags: ['狗', '犬種辨識', '行為照護'],
-  },
-  {
-    species: 'cat',
-    name: '貓咪',
-    icon: Cat,
-    keywords: ['cat', 'tabby', 'tiger cat', 'persian', 'siamese', 'egyptian cat', 'lynx'],
-    tags: ['貓', '貓種辨識', '健康觀察'],
-  },
-  {
-    species: 'rabbit',
-    name: '兔子',
-    icon: PawPrint,
-    keywords: ['rabbit', 'hare', 'bunny'],
-    tags: ['兔', '草食寵物', '照護'],
-  },
-  {
-    species: 'bird',
-    name: '鳥類',
-    icon: PawPrint,
-    keywords: ['bird', 'parrot', 'macaw', 'cockatoo', 'lorikeet', 'finch', 'canary'],
-    tags: ['鳥', '鳥類辨識', '籠舍'],
-  },
-  {
-    species: 'fish',
-    name: '魚類',
-    icon: PawPrint,
-    keywords: ['fish', 'goldfish', 'guppy', 'aquarium'],
-    tags: ['魚', '水族', '魚種辨識'],
-  },
-  {
-    species: 'reptile',
-    name: '爬蟲',
-    icon: PawPrint,
-    keywords: ['turtle', 'lizard', 'gecko', 'iguana', 'snake', 'chameleon'],
-    tags: ['爬蟲', '環境溫控', '品種辨識'],
-  },
-  {
-    species: 'small-pet',
-    name: '小型寵物',
-    icon: PawPrint,
-    keywords: ['hamster', 'guinea pig', 'mouse', 'squirrel', 'ferret'],
-    tags: ['小寵', '籠舍', '照護'],
-  },
-]
-
-const fallbackCases: CasePost[] = [
-  {
-    id: 1,
-    title: '辨識結果像柴犬，但耳朵和毛色不太確定',
-    body: '模型判斷為 spitz 類型，想請大家幫忙看是否有混到米克斯。',
-    tags: ['狗', '犬種辨識'],
-    replies: 12,
-    createdAt: '今天',
-  },
-  {
-    id: 2,
-    title: '照片辨識為 tabby cat，想確認是不是虎斑',
-    body: '背部花紋很明顯，但臉部顏色偏淡，想整理領養資料。',
-    tags: ['貓', '貓種辨識'],
-    replies: 8,
-    createdAt: '昨天',
-  },
-]
-
-const emptyAnalysis: Analysis | null = null
-
-function loadState() {
-  if (typeof window === 'undefined') {
-    return { history: [] as Analysis[], cases: fallbackCases }
+  image?: string
+  recognition?: {
+    species: string
+    guess: string
+    confidence: number
+    predictions: Prediction[]
   }
-
-  const stored = window.localStorage.getItem(storageKey)
-  if (!stored) return { history: [] as Analysis[], cases: fallbackCases }
-
-  try {
-    const parsed = JSON.parse(stored) as Partial<{ history: Analysis[]; cases: CasePost[] }>
-    return {
-      history: parsed.history ?? [],
-      cases: parsed.cases?.length ? parsed.cases : fallbackCases,
-    }
-  } catch {
-    window.localStorage.removeItem(storageKey)
-    return { history: [] as Analysis[], cases: fallbackCases }
-  }
+  pinned?: boolean
 }
 
-function readFileAsDataUrl(file: File) {
+type ThreadReply = {
+  id: number
+  threadId: number
+  author: string
+  avatar: string
+  body: string
+  createdAt: string
+  likes: number
+}
+
+type Draft = {
+  boardId: BoardId
+  title: string
+  body: string
+  tags: string
+  image?: string
+  recognition?: Thread['recognition']
+}
+
+type UploadState = {
+  progress: number
+  status: string
+  busy: boolean
+}
+
+const storageKey = 'pet-discuz-forum-v1'
+
+const boards: Board[] = [
+  {
+    id: 'identify',
+    name: '照片辨識',
+    description: '上傳照片判斷寵物類型，再讓大家一起確認',
+    icon: Camera,
+    accent: '#24786f',
+  },
+  {
+    id: 'clinic',
+    name: '健康照護',
+    description: '症狀、就醫、用藥與照護經驗',
+    icon: Shield,
+    accent: '#315c96',
+  },
+  {
+    id: 'daily',
+    name: '日常曬寵',
+    description: '生活紀錄、用品心得、照片分享',
+    icon: PawPrint,
+    accent: '#d95738',
+  },
+  {
+    id: 'adoption',
+    name: '領養送養',
+    description: '認養條件、中途募集、送養資訊',
+    icon: Home,
+    accent: '#7d6b1f',
+  },
+  {
+    id: 'training',
+    name: '行為訓練',
+    description: '社會化、分離焦慮、口令與習慣',
+    icon: Dog,
+    accent: '#774c9f',
+  },
+  {
+    id: 'lost',
+    name: '走失協尋',
+    description: '通報、目擊線索、地點追蹤',
+    icon: Cat,
+    accent: '#8b3e62',
+  },
+]
+
+const seedThreads: Thread[] = [
+  {
+    id: 101,
+    boardId: 'identify',
+    title: '這張照片 AI 判斷像柴犬，大家覺得有混到米克斯嗎？',
+    body: '剛領養回來，想先整理可能品種與照護方向。耳朵、尾巴和毛色看起來像柴犬，但體型比較細。',
+    author: 'Howy',
+    avatar: 'H',
+    createdAt: '今天 14:20',
+    views: 1280,
+    likes: 42,
+    tags: ['狗', '照片辨識', '犬種確認'],
+    image:
+      'https://images.unsplash.com/photo-1548199973-03cce0bbc87b?auto=format&fit=crop&w=900&q=80',
+    recognition: {
+      species: '狗狗',
+      guess: 'Shiba inu, chow',
+      confidence: 0.72,
+      predictions: [
+        { label: 'Shiba inu, chow', probability: 0.72 },
+        { label: 'Eskimo dog, husky', probability: 0.18 },
+        { label: 'kelpie', probability: 0.06 },
+      ],
+    },
+    pinned: true,
+  },
+  {
+    id: 102,
+    boardId: 'clinic',
+    title: '貓咪突然不吃飯一天，該直接急診嗎？',
+    body: '昨天晚餐開始只聞不吃，精神比平常差一點，水有喝。想整理急診前需要觀察的指標。',
+    author: 'Mia',
+    avatar: 'M',
+    createdAt: '今天 10:32',
+    views: 982,
+    likes: 48,
+    tags: ['貓', '食慾', '急診'],
+    pinned: true,
+  },
+  {
+    id: 103,
+    boardId: 'adoption',
+    title: '新北三個月米克斯兄妹找家，已驅蟲會定點尿布',
+    body: '個性穩定，親人親狗，適合願意持續社會化的家庭。會安排家訪與簽認養切結。',
+    author: '小雨中途',
+    avatar: '雨',
+    createdAt: '昨天 21:02',
+    views: 2103,
+    likes: 206,
+    tags: ['領養', '幼犬', '新北'],
+    image:
+      'https://images.unsplash.com/photo-1601758125946-6ec2ef64daf8?auto=format&fit=crop&w=900&q=80',
+  },
+  {
+    id: 104,
+    boardId: 'training',
+    title: '分離焦慮訓練紀錄：從 30 秒到 25 分鐘',
+    body: '分享我用攝影機記錄吠叫、逐步延長出門時間、搭配舔食墊的流程。',
+    author: 'Noah',
+    avatar: 'N',
+    createdAt: '昨天 16:47',
+    views: 735,
+    likes: 67,
+    tags: ['分離焦慮', '訓練', '狗'],
+  },
+]
+
+const seedReplies: ThreadReply[] = [
+  {
+    id: 501,
+    threadId: 101,
+    author: '阿哲',
+    avatar: '哲',
+    body: '看嘴吻和尾巴確實有柴犬感，但骨架比較像米克斯。建議再放一張側面全身照會更好判斷。',
+    createdAt: '今天 14:36',
+    likes: 8,
+  },
+  {
+    id: 502,
+    threadId: 102,
+    author: '獸醫助理 Sam',
+    avatar: 'S',
+    body: '若完全不吃超過一天、精神下降或嘔吐，建議直接就醫。可以先記錄食量、喝水、排尿排便。',
+    createdAt: '今天 10:45',
+    likes: 22,
+  },
+]
+
+const hotTags = ['照片辨識', '犬種確認', '急診', '領養', '走失', '分離焦慮', '貓砂', '幼犬']
+const onlineMembers = ['Howy', 'Mia', '阿哲', '小雨中途', 'Neko', 'Sam', 'Noah']
+
+const emptyDraft: Draft = {
+  boardId: 'identify',
+  title: '',
+  body: '',
+  tags: '',
+}
+
+function readFileAsDataUrl(file: File, onProgress?: (progress: number) => void) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
+    reader.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 45))
+    }
     reader.onload = () => resolve(String(reader.result))
     reader.onerror = () => reject(reader.error)
     reader.readAsDataURL(file)
@@ -211,79 +266,127 @@ function imageFileFromClipboard(event: ClipboardEvent) {
   return new File([file], `pasted-pet-photo.${extension}`, { type: file.type })
 }
 
-function normalizeLabel(label: string) {
-  return label.toLowerCase()
-}
-
-function classifyPet(predictions: Prediction[]) {
-  const ranked = predictions
-    .map((prediction) => {
-      const normalized = normalizeLabel(prediction.label)
-      const rule = petRules.find((item) => item.keywords.some((keyword) => normalized.includes(keyword)))
-      return { prediction, rule }
-    })
-    .find((item) => item.rule)
-
-  if (!ranked?.rule) {
-    return {
-      species: 'unknown' as PetSpecies,
-      speciesName: '未確認寵物',
-      confidence: predictions[0]?.probability ?? 0,
-      breedGuess: predictions[0]?.label ?? '無法辨識',
-      tags: ['需人工確認', '照片辨識'],
-    }
-  }
-
-  return {
-    species: ranked.rule.species,
-    speciesName: ranked.rule.name,
-    confidence: ranked.prediction.probability,
-    breedGuess: ranked.prediction.label,
-    tags: ranked.rule.tags,
-  }
+function formatNumber(value: number) {
+  if (value >= 10000) return `${(value / 10000).toFixed(1)}萬`
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
+  return String(value)
 }
 
 function percent(value: number) {
   return `${Math.round(value * 100)}%`
 }
 
-function createPostFromAnalysis(analysis: Analysis): CasePost {
-  return {
-    id: Date.now(),
-    title: `請協助確認：這張照片可能是${analysis.speciesName}`,
-    body: `系統最高判斷為「${analysis.breedGuess}」，信心分數 ${percent(
-      analysis.confidence,
-    )}。想請大家協助確認品種、外觀特徵或照護注意事項。`,
-    image: analysis.image,
-    tags: analysis.tags,
-    replies: 0,
-    createdAt: '剛剛',
+function petTagsFromPredictions(predictions: Prediction[]) {
+  const labels = predictions.map((item) => item.label.toLowerCase()).join(' ')
+  if (/cat|tabby|siamese|persian/.test(labels)) return { species: '貓咪', tags: ['貓', '貓種確認'] }
+  if (/dog|terrier|retriever|poodle|chihuahua|husky|shiba|hound|spaniel|shepherd|corgi/.test(labels)) {
+    return { species: '狗狗', tags: ['狗', '犬種確認'] }
   }
+  if (/rabbit|hare/.test(labels)) return { species: '兔子', tags: ['兔', '小寵'] }
+  if (/bird|parrot|macaw|cockatoo/.test(labels)) return { species: '鳥類', tags: ['鳥', '鳥類辨識'] }
+  return { species: '未確認寵物', tags: ['照片辨識', '需人工確認'] }
 }
 
-function sanitizeCasePost(post: CasePost): CasePost {
-  return {
-    ...post,
-    tags: Array.isArray(post.tags) ? post.tags : [],
-    replies: Number.isFinite(post.replies) ? post.replies : 0,
+function loadState() {
+  if (typeof window === 'undefined') {
+    return { threads: seedThreads, replies: seedReplies, userName: '訪客飼主' }
+  }
+
+  const stored = window.localStorage.getItem(storageKey)
+  if (!stored) return { threads: seedThreads, replies: seedReplies, userName: '訪客飼主' }
+
+  try {
+    const parsed = JSON.parse(stored) as Partial<{
+      threads: Thread[]
+      replies: ThreadReply[]
+      userName: string
+    }>
+    return {
+      threads: parsed.threads?.length ? parsed.threads : seedThreads,
+      replies: parsed.replies?.length ? parsed.replies : seedReplies,
+      userName: parsed.userName ?? '訪客飼主',
+    }
+  } catch {
+    window.localStorage.removeItem(storageKey)
+    return { threads: seedThreads, replies: seedReplies, userName: '訪客飼主' }
   }
 }
 
 function App() {
   const initialState = useMemo(() => loadState(), [])
-  const [analysis, setAnalysis] = useState<Analysis | null>(emptyAnalysis)
-  const [history, setHistory] = useState<Analysis[]>(() => initialState.history)
-  const [cases, setCases] = useState<CasePost[]>(() => initialState.cases)
-  const [status, setStatus] = useState('上傳一張寵物照片開始辨識')
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
-  const [caseDraft, setCaseDraft] = useState('')
+  const [threads, setThreads] = useState<Thread[]>(() => initialState.threads)
+  const [replies, setReplies] = useState<ThreadReply[]>(() => initialState.replies)
+  const [userName, setUserName] = useState(() => initialState.userName)
+  const [activeBoard, setActiveBoard] = useState<BoardId | 'all'>('all')
+  const [selectedThreadId, setSelectedThreadId] = useState(initialState.threads[0]?.id ?? 101)
+  const [query, setQuery] = useState('')
+  const [draft, setDraft] = useState<Draft>(emptyDraft)
+  const [replyDraft, setReplyDraft] = useState('')
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [uploadState, setUploadState] = useState<UploadState>({
+    progress: 0,
+    status: '可選擇、拖放或貼上照片',
+    busy: false,
+  })
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const modelRef = useRef<MobileNet | null>(null)
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ history, cases }))
-  }, [cases, history])
+    window.localStorage.setItem(storageKey, JSON.stringify({ threads, replies, userName }))
+  }, [replies, threads, userName])
+
+  async function analyzeFile(file: File) {
+    if (!file.type.startsWith('image/')) {
+      setUploadState({ progress: 0, status: '請使用圖片檔', busy: false })
+      return
+    }
+
+    setUploadState({ progress: 1, status: '正在讀取照片', busy: true })
+
+    try {
+      const imageData = await readFileAsDataUrl(file, (progress) => {
+        setUploadState({ progress, status: '正在讀取照片', busy: true })
+      })
+      setUploadState({ progress: 55, status: '正在載入 AI 模型', busy: true })
+      const image = await loadImage(imageData)
+      await import('@tensorflow/tfjs')
+      const mobilenetModel = await import('@tensorflow-models/mobilenet')
+      modelRef.current ??= await mobilenetModel.load()
+
+      setUploadState({ progress: 78, status: '正在辨識寵物照片', busy: true })
+      const predictions = (await modelRef.current.classify(image, 5)).map((prediction) => ({
+        label: prediction.className,
+        probability: prediction.probability,
+      }))
+      const main = predictions[0]
+      const pet = petTagsFromPredictions(predictions)
+      const autoTags = [...new Set(['照片辨識', ...pet.tags])]
+
+      setDraft((current) => ({
+        ...current,
+        boardId: 'identify',
+        image: imageData,
+        tags: [...new Set([...current.tags.split(/[,\s，]+/).filter(Boolean), ...autoTags])].join(', '),
+        title: current.title || `請協助確認：這張照片可能是${pet.species}`,
+        body:
+          current.body ||
+          `AI 初步判斷為「${main?.label ?? '未確認'}」，信心分數 ${percent(
+            main?.probability ?? 0,
+          )}。想請大家協助確認品種、特徵或照護注意事項。`,
+        recognition: {
+          species: pet.species,
+          guess: main?.label ?? '未確認',
+          confidence: main?.probability ?? 0,
+          predictions,
+        },
+      }))
+      setUploadState({ progress: 100, status: '辨識完成，可直接發帖討論', busy: false })
+    } catch {
+      setUploadState({ progress: 0, status: '辨識失敗，請換一張照片再試', busy: false })
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   useEffect(() => {
     function handlePaste(event: ClipboardEvent) {
@@ -291,395 +394,447 @@ function App() {
       if (!file) return
 
       event.preventDefault()
-      setStatus('已收到貼上的圖片')
+      setComposerOpen(true)
       void analyzeFile(file)
     }
 
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
-  })
-
-  useEffect(() => {
-    if (!apiBase) return
-
-    const controller = new AbortController()
-
-    fetch(`${apiBase}/api/cases`, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error('cases request failed')
-        return response.json() as Promise<{ cases?: CasePost[] }>
-      })
-      .then((payload) => {
-        if (payload.cases?.length) {
-          setCases(payload.cases.map(sanitizeCasePost))
-          setStatus('已連線後端案例庫')
-        }
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) {
-          console.warn(error)
-          setStatus('後端暫時無法連線，已切換本機紀錄')
-        }
-      })
-
-    return () => controller.abort()
   }, [])
 
-  async function analyzeFile(file: File) {
-    if (!file.type.startsWith('image/')) {
-      setStatus('請選擇 JPG、PNG、WebP 等圖片檔')
-      return
-    }
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? threads[0]
+  const selectedBoard = boards.find((board) => board.id === selectedThread?.boardId) ?? boards[0]
+  const SelectedBoardIcon = selectedBoard.icon
+  const threadReplies = replies.filter((reply) => reply.threadId === selectedThread?.id)
+  const visibleThreads = threads
+    .filter((thread) => activeBoard === 'all' || thread.boardId === activeBoard)
+    .filter((thread) => {
+      const keyword = query.trim().toLowerCase()
+      if (!keyword) return true
+      return [thread.title, thread.body, thread.author, ...thread.tags].join(' ').toLowerCase().includes(keyword)
+    })
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)) || b.id - a.id)
 
-    setIsAnalyzing(true)
-    setStatus('正在讀取照片')
-
-    try {
-      const imageData = await readFileAsDataUrl(file)
-      const image = await loadImage(imageData)
-
-      setStatus('正在載入照片辨識模型')
-      await import('@tensorflow/tfjs')
-      const mobilenetModel = await import('@tensorflow-models/mobilenet')
-      modelRef.current ??= await mobilenetModel.load()
-
-      setStatus('正在分析寵物特徵')
-      const predictions = (await modelRef.current.classify(image, 5)).map((prediction) => ({
-        label: prediction.className,
-        probability: prediction.probability,
-      }))
-      const petResult = classifyPet(predictions)
-      const nextAnalysis: Analysis = {
-        id: Date.now(),
-        image: imageData,
-        fileName: file.name,
-        createdAt: new Intl.DateTimeFormat('zh-TW', {
-          month: '2-digit',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-        }).format(new Date()),
-        predictions,
-        ...petResult,
-      }
-
-      setAnalysis(nextAnalysis)
-      setHistory((current) => [nextAnalysis, ...current].slice(0, 8))
-      setCaseDraft(
-        `系統判斷：${nextAnalysis.speciesName} / ${nextAnalysis.breedGuess}（${percent(
-          nextAnalysis.confidence,
-        )}）`,
-      )
-      setStatus('辨識完成')
-    } catch {
-      setStatus('辨識失敗，請換一張清楚的照片再試一次')
-    } finally {
-      setIsAnalyzing(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
+  function boardThreadCount(boardId: BoardId) {
+    return threads.filter((thread) => thread.boardId === boardId).length
   }
 
-  function handleDrop(event: React.DragEvent<HTMLLabelElement>) {
+  function submitThread(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setIsDragging(false)
-    const file = event.dataTransfer.files[0]
-    if (file) void analyzeFile(file)
+    if (!draft.title.trim() || !draft.body.trim()) return
+
+    const thread: Thread = {
+      id: Date.now(),
+      boardId: draft.boardId,
+      title: draft.title.trim(),
+      body: draft.body.trim(),
+      author: userName.trim() || '訪客飼主',
+      avatar: (userName.trim() || '訪').slice(0, 1),
+      createdAt: '剛剛',
+      views: 1,
+      likes: 0,
+      tags: draft.tags.split(/[,\s，]+/).filter(Boolean).slice(0, 8),
+      image: draft.image,
+      recognition: draft.recognition,
+    }
+
+    setThreads((current) => [thread, ...current])
+    setSelectedThreadId(thread.id)
+    setActiveBoard(thread.boardId)
+    setDraft(emptyDraft)
+    setUploadState({ progress: 0, status: '可選擇、拖放或貼上照片', busy: false })
+    setComposerOpen(false)
   }
 
-  async function publishCase() {
-    if (!analysis) return
-    const basePost = createPostFromAnalysis(analysis)
-    const post = {
-      ...basePost,
-      body: caseDraft.trim() ? `${basePost.body}\n\n補充：${caseDraft.trim()}` : basePost.body,
+  function submitReply(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedThread || !replyDraft.trim()) return
+
+    const reply: ThreadReply = {
+      id: Date.now(),
+      threadId: selectedThread.id,
+      author: userName.trim() || '訪客飼主',
+      avatar: (userName.trim() || '訪').slice(0, 1),
+      body: replyDraft.trim(),
+      createdAt: '剛剛',
+      likes: 0,
     }
 
-    setCases((current) => [post, ...current])
-
-    if (!apiBase) {
-      setStatus('已建立本機辨識討論案例')
-      return
-    }
-
-    try {
-      const response = await fetch(`${apiBase}/api/cases`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...post, image: undefined }),
-      })
-      if (!response.ok) throw new Error('case publish failed')
-
-      const payload = (await response.json()) as { case?: CasePost }
-      if (payload.case) {
-        setCases((current) => [
-          sanitizeCasePost({ ...payload.case, image: post.image } as CasePost),
-          ...current.filter((item) => item.id !== post.id),
-        ])
-      }
-      setStatus('已同步到後端案例庫')
-    } catch (error) {
-      console.warn(error)
-      setStatus('後端同步失敗，案例已保存在本機')
-    }
+    setReplies((current) => [...current, reply])
+    setReplyDraft('')
   }
-
-  const currentRule = analysis ? petRules.find((rule) => rule.species === analysis.species) : undefined
-  const SpeciesIcon = currentRule?.icon ?? PawPrint
 
   return (
-    <main className="petlens">
+    <main className="forum-shell">
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">
-            <SearchCheck size={22} />
+            <PawPrint size={22} />
           </span>
           <div>
-            <strong>PetLens 寵物照片辨識</strong>
-            <span>上傳照片，快速判斷寵物類型與可能品種</span>
+            <strong>PetTalk 寵物論壇</strong>
+            <span>Discuz 風格討論區 + 瀏覽器端照片辨識</span>
           </div>
         </div>
-        <div className="topbar-status">
-          {isAnalyzing ? <Loader size={16} className="spin" /> : <Shield size={16} />}
-          {status}
+        <label className="search-box">
+          <Search size={18} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋帖子、標籤、作者" />
+        </label>
+        <div className="top-actions">
+          <button type="button" className="icon-button" aria-label="通知">
+            <Bell size={18} />
+          </button>
+          <label className="user-chip">
+            <User size={16} />
+            <input value={userName} onChange={(event) => setUserName(event.target.value)} />
+          </label>
+          <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
+            <Plus size={18} />
+            發帖
+          </button>
         </div>
       </header>
 
-      <section className="recognition-workbench">
-        <div className="upload-panel">
-          <div className="panel-heading">
-            <span className="eyebrow">
-              <Camera size={15} />
-              照片辨識
-            </span>
-            <h1>上傳寵物照片，立即辨識可能的寵物種類。</h1>
-            <p>適合辨識貓、狗、兔、鳥、魚、爬蟲與小型寵物。模型在你的瀏覽器執行，照片不會送到伺服器。</p>
-          </div>
-
-          <label
-            className={`drop-zone ${isDragging ? 'is-dragging' : ''} ${analysis ? 'has-image' : ''}`}
-            onDragOver={(event) => {
-              event.preventDefault()
-              setIsDragging(true)
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={handleDrop}
-          >
-            {analysis ? (
-              <img src={analysis.image} alt="目前辨識的寵物照片" />
-            ) : (
-              <span className="drop-placeholder">
-                <ImageUp size={44} />
-                <strong>拖放照片到這裡</strong>
-                <small>或點擊選擇檔案，也可直接 Cmd/Ctrl+V 貼上圖片</small>
-              </span>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void analyzeFile(file)
-              }}
-            />
-          </label>
-
-          <div className="upload-actions">
-            <button type="button" className="primary-button" onClick={() => fileInputRef.current?.click()}>
-              <Upload size={18} />
-              選擇照片
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={isAnalyzing}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <RefreshCw size={18} />
-              重新選擇
-            </button>
-          </div>
+      <section className="forum-hero">
+        <div>
+          <span className="eyebrow">
+            <Flame size={15} />
+            寵物飼主交流站
+          </span>
+          <h1>發帖、回覆、看版塊，也能把寵物照片辨識結果帶進討論。</h1>
         </div>
-
-        <section className="result-panel" aria-label="辨識結果">
-          {!analysis ? (
-            <div className="empty-result">
-              <Sparkles size={36} />
-              <h2>等待照片</h2>
-              <p>辨識完成後會顯示寵物類型、可能品種、信心分數、AI 原始分類與可帶入論壇的標籤。</p>
-            </div>
-          ) : (
-            <>
-              <div className="result-summary">
-                <span className="species-icon">
-                  <SpeciesIcon size={30} />
-                </span>
-                <div>
-                  <span className="eyebrow">
-                    <CheckCircle size={15} />
-                    主要判斷
-                  </span>
-                  <h2>{analysis.speciesName}</h2>
-                  <p>{analysis.breedGuess}</p>
-                </div>
-                <strong className="confidence">{percent(analysis.confidence)}</strong>
-              </div>
-
-              <div className="result-grid">
-                <div>
-                  <span>檔名</span>
-                  <strong>{analysis.fileName}</strong>
-                </div>
-                <div>
-                  <span>辨識時間</span>
-                  <strong>{analysis.createdAt}</strong>
-                </div>
-              </div>
-
-              <div className="prediction-list">
-                <div className="section-title">
-                  <BarChart3 size={16} />
-                  AI 原始分類
-                </div>
-                {analysis.predictions.map((prediction) => (
-                  <div className="prediction-row" key={prediction.label}>
-                    <div>
-                      <span>{prediction.label}</span>
-                      <strong>{percent(prediction.probability)}</strong>
-                    </div>
-                    <meter min={0} max={1} value={prediction.probability} />
-                  </div>
-                ))}
-              </div>
-
-              <div className="tag-box">
-                <div className="section-title">
-                  <Tags size={16} />
-                  建議標籤
-                </div>
-                <div className="tag-row">
-                  {analysis.tags.map((tag) => (
-                    <span key={tag}>#{tag}</span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="notice">
-                <Info size={17} />
-                <p>照片辨識只適合做外觀與品種初判；健康、年齡、品種純度與醫療問題仍需要獸醫或專業人士確認。</p>
-              </div>
-            </>
-          )}
-        </section>
+        <div className="forum-stats">
+          <span>
+            <strong>{threads.length}</strong>
+            主題
+          </span>
+          <span>
+            <strong>{replies.length}</strong>
+            回覆
+          </span>
+          <span>
+            <strong>{onlineMembers.length}</strong>
+            在線
+          </span>
+        </div>
       </section>
 
-      <section className="support-grid">
-        <aside className="history-panel">
-          <div className="section-title">
-            <History size={16} />
-            最近辨識
-          </div>
-          {history.length === 0 ? (
-            <p className="muted">尚無辨識紀錄。</p>
-          ) : (
-            <div className="history-list">
-              {history.map((item) => (
-                <button type="button" key={item.id} onClick={() => setAnalysis(item)}>
-                  <img src={item.image} alt="" />
-                  <span>
-                    <strong>{item.speciesName}</strong>
-                    <small>{item.breedGuess}</small>
-                  </span>
-                  <em>{percent(item.confidence)}</em>
-                </button>
-              ))}
-            </div>
-          )}
+      <section className="forum-grid">
+        <aside className="board-list">
+          <button className={activeBoard === 'all' ? 'is-active' : ''} type="button" onClick={() => setActiveBoard('all')}>
+            <Flame size={18} />
+            <span>
+              <strong>全部版塊</strong>
+              <small>{threads.length} 主題</small>
+            </span>
+          </button>
+          {boards.map((board) => {
+            const Icon = board.icon
+            return (
+              <button
+                key={board.id}
+                className={activeBoard === board.id ? 'is-active' : ''}
+                type="button"
+                style={{ '--board-accent': board.accent } as React.CSSProperties}
+                onClick={() => setActiveBoard(board.id)}
+              >
+                <Icon size={18} />
+                <span>
+                  <strong>{board.name}</strong>
+                  <small>{boardThreadCount(board.id)} 主題 · {board.description}</small>
+                </span>
+              </button>
+            )
+          })}
         </aside>
 
-        <section className="case-panel">
-          <div className="case-composer">
+        <section className="thread-list-panel">
+          <div className="panel-head">
             <div>
               <span className="eyebrow">
                 <MessageCircle size={15} />
-                辨識後討論
+                討論列表
               </span>
-              <h2>把辨識結果發成案例</h2>
-              <p>辨識不確定時，可以把結果轉成論壇案例，讓其他飼主協助確認外觀特徵。</p>
+              <h2>{activeBoard === 'all' ? '全部主題' : boards.find((board) => board.id === activeBoard)?.name}</h2>
             </div>
-            <textarea
-              value={caseDraft}
-              onChange={(event) => setCaseDraft(event.target.value)}
-              placeholder="上傳照片後可補充年齡、體型、地點或你想確認的問題"
-            />
-            <button type="button" className="primary-button" disabled={!analysis} onClick={() => void publishCase()}>
-              <Send size={18} />
-              建立討論案例
+            <button type="button" className="secondary-button" onClick={() => setComposerOpen(true)}>
+              <Plus size={17} />
+              新主題
             </button>
           </div>
-
-          <div className="case-list">
-            {cases.map((item) => (
-              <article key={item.id} className="case-card">
-                {item.image && <img src={item.image} alt="" />}
-                <div>
-                  <div className="case-meta">
+          <div className="thread-list">
+            {visibleThreads.map((thread) => {
+              const board = boards.find((item) => item.id === thread.boardId) ?? boards[0]
+              const replyCount = replies.filter((reply) => reply.threadId === thread.id).length
+              return (
+                <button
+                  type="button"
+                  className={`thread-row ${selectedThread?.id === thread.id ? 'is-selected' : ''}`}
+                  key={thread.id}
+                  onClick={() => setSelectedThreadId(thread.id)}
+                >
+                  {thread.image && <img src={thread.image} alt="" />}
+                  <span className="thread-main">
+                    <span className="thread-meta" style={{ color: board.accent }}>
+                      {board.name}
+                      {thread.pinned && <em>置頂</em>}
+                      {thread.recognition && <em>AI辨識</em>}
+                    </span>
+                    <strong>{thread.title}</strong>
+                    <small>{thread.body}</small>
+                    <span className="tag-row">
+                      {thread.tags.map((tag) => (
+                        <i key={tag}>#{tag}</i>
+                      ))}
+                    </span>
+                  </span>
+                  <span className="thread-counts">
                     <span>
-                      <Clock size={14} />
-                      {item.createdAt}
+                      <Reply size={14} />
+                      {replyCount}
                     </span>
                     <span>
-                      <MessageCircle size={14} />
-                      {item.replies}
+                      <Eye size={14} />
+                      {formatNumber(thread.views)}
                     </span>
-                  </div>
-                  <h3>{item.title}</h3>
-                  <p>{item.body}</p>
-                  <div className="tag-row">
-                    {item.tags.map((tag) => (
-                      <span key={tag}>#{tag}</span>
-                    ))}
-                  </div>
-                </div>
-              </article>
-            ))}
+                  </span>
+                </button>
+              )
+            })}
           </div>
         </section>
 
-        <aside className="guide-panel">
-          <div className="section-title">
-            <HeartPulse size={16} />
-            拍照建議
-          </div>
-          <ul>
-            <li>照片保持明亮，避免過度裁切臉部或身體。</li>
-            <li>同一隻寵物可拍正面、側面、全身各一張。</li>
-            <li>若要判斷品種，請避開衣服、牽繩或背景物遮擋。</li>
-            <li>走失協尋建議保留項圈、毛色、體型與明顯花紋。</li>
-          </ul>
-          <div className="warning-box">
-            <AlertTriangle size={17} />
-            <span>醫療判斷請不要只依賴照片辨識。</span>
-          </div>
-          <button
-            type="button"
-            className="clear-button"
-            onClick={() => {
-              setAnalysis(null)
-              setHistory([])
-              setStatus('已清除辨識紀錄')
-            }}
-          >
-            <X size={16} />
-            清除紀錄
-          </button>
+        <section className="thread-detail-panel">
+          {selectedThread && (
+            <>
+              <article className="thread-detail">
+                <div className="detail-head">
+                  <span className="eyebrow" style={{ color: selectedBoard.accent }}>
+                    <SelectedBoardIcon size={15} />
+                    {selectedBoard.name}
+                  </span>
+                  <h2>{selectedThread.title}</h2>
+                  <div className="author-row">
+                    <span className="avatar">{selectedThread.avatar}</span>
+                    <div>
+                      <strong>{selectedThread.author}</strong>
+                      <small>{selectedThread.createdAt}</small>
+                    </div>
+                    <button type="button" className="icon-button" aria-label="收藏">
+                      <Bookmark size={18} />
+                    </button>
+                  </div>
+                </div>
+
+                {selectedThread.image && <img className="thread-photo" src={selectedThread.image} alt="" />}
+                <p>{selectedThread.body}</p>
+
+                {selectedThread.recognition && (
+                  <div className="recognition-box">
+                    <div className="section-title">
+                      <BarChart3 size={16} />
+                      AI 照片辨識結果
+                    </div>
+                    <strong>
+                      {selectedThread.recognition.species} · {selectedThread.recognition.guess} ·{' '}
+                      {percent(selectedThread.recognition.confidence)}
+                    </strong>
+                    {selectedThread.recognition.predictions.map((prediction) => (
+                      <div className="prediction-row" key={prediction.label}>
+                        <span>{prediction.label}</span>
+                        <meter min={0} max={1} value={prediction.probability} />
+                        <b>{percent(prediction.probability)}</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="action-row">
+                  <button type="button" onClick={() => setThreads((current) => current.map((item) => item.id === selectedThread.id ? { ...item, likes: item.likes + 1 } : item))}>
+                    <Heart size={17} />
+                    {selectedThread.likes}
+                  </button>
+                  <button type="button">
+                    <MessageCircle size={17} />
+                    {threadReplies.length}
+                  </button>
+                </div>
+              </article>
+
+              <div className="reply-list">
+                <h3>回覆</h3>
+                {threadReplies.length === 0 && <p className="muted">還沒有回覆，先回一樓。</p>}
+                {threadReplies.map((reply) => (
+                  <article className="reply-card" key={reply.id}>
+                    <span className="avatar">{reply.avatar}</span>
+                    <div>
+                      <div className="reply-meta">
+                        <strong>{reply.author}</strong>
+                        <small>{reply.createdAt}</small>
+                      </div>
+                      <p>{reply.body}</p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <form className="reply-form" onSubmit={submitReply}>
+                <textarea
+                  value={replyDraft}
+                  onChange={(event) => setReplyDraft(event.target.value)}
+                  placeholder="參與討論，輸入你的回覆"
+                />
+                <button type="submit" className="primary-button">
+                  <Send size={17} />
+                  送出回覆
+                </button>
+              </form>
+            </>
+          )}
+        </section>
+
+        <aside className="right-rail">
+          <section className="side-panel">
+            <div className="section-title">
+              <Camera size={16} />
+              照片辨識發帖
+            </div>
+            <p>AI 使用瀏覽器端 MobileNet，不需要 token。可選檔、拖放或 Cmd/Ctrl+V 貼上圖片，辨識後自動帶入發帖內容。</p>
+            <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
+              <Upload size={17} />
+              上傳並發帖
+            </button>
+          </section>
+          <section className="side-panel">
+            <div className="section-title">
+              <Tags size={16} />
+              熱門標籤
+            </div>
+            <div className="tag-cloud">
+              {hotTags.map((tag) => (
+                <button key={tag} type="button" onClick={() => setQuery(tag)}>
+                  #{tag}
+                </button>
+              ))}
+            </div>
+          </section>
+          <section className="side-panel">
+            <div className="section-title">
+              <Users size={16} />
+              在線會員
+            </div>
+            <div className="member-list">
+              {onlineMembers.map((member) => (
+                <span key={member}>
+                  <span className="avatar">{member.slice(0, 1)}</span>
+                  {member}
+                </span>
+              ))}
+            </div>
+          </section>
         </aside>
       </section>
 
-      <footer>
-        <FileText size={15} />
-        PetLens 使用瀏覽器端 AI 模型進行寵物照片初步辨識。
-      </footer>
+      {composerOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="發表新主題">
+          <form className="composer" onSubmit={submitThread}>
+            <div className="modal-head">
+              <div>
+                <span className="eyebrow">
+                  <Plus size={15} />
+                  發表主題
+                </span>
+                <h2>發新帖</h2>
+              </div>
+              <button type="button" className="icon-button" aria-label="關閉" onClick={() => setComposerOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <label
+              className={`upload-zone ${draft.image ? 'has-image' : ''}`}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault()
+                const file = event.dataTransfer.files[0]
+                if (file) void analyzeFile(file)
+              }}
+            >
+              {draft.image ? (
+                <img src={draft.image} alt="上傳照片預覽" />
+              ) : (
+                <span>
+                  <ImageUp size={34} />
+                  選擇、拖放或貼上寵物照片
+                </span>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  if (file) void analyzeFile(file)
+                }}
+              />
+            </label>
+            <div className="progress-panel">
+              <div>
+                {uploadState.busy && <Loader className="spin" size={15} />}
+                <span>{uploadState.status}</span>
+                <strong>{uploadState.progress}%</strong>
+              </div>
+              <progress max={100} value={uploadState.progress} />
+            </div>
+
+            <div className="form-grid">
+              <label>
+                版塊
+                <select
+                  value={draft.boardId}
+                  onChange={(event) => setDraft((current) => ({ ...current, boardId: event.target.value as BoardId }))}
+                >
+                  {boards.map((board) => (
+                    <option value={board.id} key={board.id}>
+                      {board.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                標籤
+                <input
+                  value={draft.tags}
+                  onChange={(event) => setDraft((current) => ({ ...current, tags: event.target.value }))}
+                  placeholder="照片辨識, 狗, 犬種確認"
+                />
+              </label>
+            </div>
+            <label>
+              標題
+              <input
+                value={draft.title}
+                onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+                placeholder="請輸入主題標題"
+                required
+              />
+            </label>
+            <label>
+              內容
+              <textarea
+                value={draft.body}
+                onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))}
+                placeholder="輸入問題、補充資訊或想討論的內容"
+                required
+              />
+            </label>
+            <button type="submit" className="primary-button">
+              <Send size={17} />
+              發佈主題
+            </button>
+          </form>
+        </div>
+      )}
     </main>
   )
 }
