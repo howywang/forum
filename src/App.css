@@ -140,7 +140,9 @@ h1 {
 .drop-zone {
   position: relative;
   display: grid;
-  min-height: 430px;
+  height: 430px;
+  min-height: 0;
+  aspect-ratio: 4 / 3;
   place-items: center;
   overflow: hidden;
   border: 2px dashed #bbb1a1;
@@ -161,8 +163,9 @@ h1 {
 .drop-zone img {
   width: 100%;
   height: 100%;
-  min-height: 430px;
-  object-fit: cover;
+  display: block;
+  object-fit: contain;
+  background: #151512;
 }
 
 .drop-zone input {
@@ -484,6 +487,7 @@ meter {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);
   gap: 14px;
+  align-items: start;
   padding: 12px;
   border-radius: 8px;
   background: #f7f2e8;
@@ -492,8 +496,10 @@ meter {
 .case-card > img {
   width: 150px;
   height: 150px;
+  aspect-ratio: 1;
   border-radius: 8px;
-  object-fit: cover;
+  object-fit: contain;
+  background: #151512;
 }
 
 .case-meta {
@@ -596,9 +602,8 @@ footer {
     padding: 0 18px 18px;
   }
 
-  .drop-zone,
-  .drop-zone img {
-    min-height: 320px;
+  .drop-zone {
+    height: 320px;
   }
 }
 
@@ -620,6 +625,7 @@ footer {
   .case-card > img {
     width: 100%;
     height: 210px;
+    aspect-ratio: 16 / 10;
   }
 
   .upload-actions,
