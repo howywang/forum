@@ -200,6 +200,17 @@ function loadImage(src: string) {
   })
 }
 
+function imageFileFromClipboard(event: ClipboardEvent) {
+  const items = Array.from(event.clipboardData?.items ?? [])
+  const imageItem = items.find((item) => item.kind === 'file' && item.type.startsWith('image/'))
+  const file = imageItem?.getAsFile()
+
+  if (!file) return null
+
+  const extension = file.type.split('/')[1] || 'png'
+  return new File([file], `pasted-pet-photo.${extension}`, { type: file.type })
+}
+
 function normalizeLabel(label: string) {
   return label.toLowerCase()
 }
@@ -273,6 +284,20 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify({ history, cases }))
   }, [cases, history])
+
+  useEffect(() => {
+    function handlePaste(event: ClipboardEvent) {
+      const file = imageFileFromClipboard(event)
+      if (!file) return
+
+      event.preventDefault()
+      setStatus('已收到貼上的圖片')
+      void analyzeFile(file)
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  })
 
   useEffect(() => {
     if (!apiBase) return
@@ -445,7 +470,7 @@ function App() {
               <span className="drop-placeholder">
                 <ImageUp size={44} />
                 <strong>拖放照片到這裡</strong>
-                <small>或點擊選擇檔案</small>
+                <small>或點擊選擇檔案，也可直接 Cmd/Ctrl+V 貼上圖片</small>
               </span>
             )}
             <input
