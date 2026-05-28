@@ -13,6 +13,8 @@ import {
   Home,
   ImageUp,
   Loader,
+  LogIn,
+  LogOut,
   MessageCircle,
   PawPrint,
   Plus,
@@ -24,6 +26,7 @@ import {
   Tags,
   Upload,
   User,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react'
@@ -51,6 +54,7 @@ type Thread = {
   body: string
   author: string
   avatar: string
+  memberId?: number
   createdAt: string
   views: number
   likes: number
@@ -71,6 +75,7 @@ type ThreadReply = {
   threadId: number
   author: string
   avatar: string
+  memberId?: number
   body: string
   createdAt: string
   likes: number
@@ -99,6 +104,21 @@ type UploadState = {
   progress: number
   status: string
   busy: boolean
+}
+
+type Member = {
+  id: number
+  name: string
+  password: string
+  avatar: string
+  xp: number
+  joinedAt: string
+}
+
+type AuthForm = {
+  name: string
+  password: string
+  avatar: string
 }
 
 const storageKey = 'pet-discuz-forum-v1'
@@ -237,14 +257,26 @@ const seedReplies: ThreadReply[] = [
 ]
 
 const hotTags = ['照片辨識', '犬種確認', '急診', '領養', '走失', '分離焦慮', '貓砂', '幼犬']
-const onlineMembers = ['Howy', 'Mia', '阿哲', '小雨中途', 'Neko', 'Sam', 'Noah']
 const assistantDisclaimer = '此為規則式寵物知識庫建議，不能取代獸醫診斷；若症狀嚴重或快速惡化，請直接聯絡獸醫。'
+
+const seedMembers: Member[] = [
+  { id: 1, name: 'Howy', password: 'demo', avatar: 'H', xp: 160, joinedAt: '今天' },
+  { id: 2, name: 'Mia', password: 'demo', avatar: 'M', xp: 110, joinedAt: '今天' },
+  { id: 3, name: '阿哲', password: 'demo', avatar: '哲', xp: 80, joinedAt: '昨天' },
+  { id: 4, name: '小雨中途', password: 'demo', avatar: '雨', xp: 220, joinedAt: '昨天' },
+]
 
 const emptyDraft: Draft = {
   boardId: 'identify',
   title: '',
   body: '',
   tags: '',
+}
+
+const emptyAuthForm: AuthForm = {
+  name: '',
+  password: '',
+  avatar: '',
 }
 
 function readFileAsDataUrl(file: File, onProgress?: (progress: number) => void) {
@@ -287,6 +319,29 @@ function formatNumber(value: number) {
 
 function percent(value: number) {
   return `${Math.round(value * 100)}%`
+}
+
+function memberLevel(xp: number) {
+  if (xp >= 300) return { name: '教授', next: 500 }
+  if (xp >= 150) return { name: '研究生', next: 300 }
+  if (xp >= 60) return { name: '助教', next: 150 }
+  return { name: '新生', next: 60 }
+}
+
+function avatarLabel(name: string) {
+  return name.trim().slice(0, 1) || '訪'
+}
+
+function isImageAvatar(avatar: string) {
+  return avatar.startsWith('data:image/') || avatar.startsWith('http')
+}
+
+function Avatar({ avatar, name, size = 34 }: { avatar: string; name: string; size?: number }) {
+  return (
+    <span className="avatar" style={{ width: size, height: size }}>
+      {isImageAvatar(avatar) ? <img src={avatar} alt="" /> : avatar || avatarLabel(name)}
+    </span>
+  )
 }
 
 function petTagsFromPredictions(predictions: Prediction[]) {
@@ -372,26 +427,29 @@ function createAssistantAdvice(input: string, recognition?: Thread['recognition'
 
 function loadState() {
   if (typeof window === 'undefined') {
-    return { threads: seedThreads, replies: seedReplies, userName: '訪客飼主' }
+    return { threads: seedThreads, replies: seedReplies, members: seedMembers, currentMemberId: null as number | null }
   }
 
   const stored = window.localStorage.getItem(storageKey)
-  if (!stored) return { threads: seedThreads, replies: seedReplies, userName: '訪客飼主' }
+  if (!stored) return { threads: seedThreads, replies: seedReplies, members: seedMembers, currentMemberId: null as number | null }
 
   try {
     const parsed = JSON.parse(stored) as Partial<{
       threads: Thread[]
       replies: ThreadReply[]
+      members: Member[]
+      currentMemberId: number | null
       userName: string
     }>
     return {
       threads: parsed.threads?.length ? parsed.threads : seedThreads,
       replies: parsed.replies?.length ? parsed.replies : seedReplies,
-      userName: parsed.userName ?? '訪客飼主',
+      members: parsed.members?.length ? parsed.members : seedMembers,
+      currentMemberId: parsed.currentMemberId ?? null,
     }
   } catch {
     window.localStorage.removeItem(storageKey)
-    return { threads: seedThreads, replies: seedReplies, userName: '訪客飼主' }
+    return { threads: seedThreads, replies: seedReplies, members: seedMembers, currentMemberId: null as number | null }
   }
 }
 
@@ -399,13 +457,18 @@ function App() {
   const initialState = useMemo(() => loadState(), [])
   const [threads, setThreads] = useState<Thread[]>(() => initialState.threads)
   const [replies, setReplies] = useState<ThreadReply[]>(() => initialState.replies)
-  const [userName, setUserName] = useState(() => initialState.userName)
+  const [members, setMembers] = useState<Member[]>(() => initialState.members)
+  const [currentMemberId, setCurrentMemberId] = useState<number | null>(() => initialState.currentMemberId)
   const [activeBoard, setActiveBoard] = useState<BoardId | 'all'>('all')
   const [selectedThreadId, setSelectedThreadId] = useState(initialState.threads[0]?.id ?? 101)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [replyDraft, setReplyDraft] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
+  const [authOpen, setAuthOpen] = useState(false)
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [authForm, setAuthForm] = useState<AuthForm>(emptyAuthForm)
+  const [authError, setAuthError] = useState('')
   const [uploadState, setUploadState] = useState<UploadState>({
     progress: 0,
     status: '可選擇、拖放或貼上照片',
@@ -415,8 +478,8 @@ function App() {
   const modelRef = useRef<MobileNet | null>(null)
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ threads, replies, userName }))
-  }, [replies, threads, userName])
+    window.localStorage.setItem(storageKey, JSON.stringify({ threads, replies, members, currentMemberId }))
+  }, [currentMemberId, members, replies, threads])
 
   async function analyzeFile(file: File) {
     if (!file.type.startsWith('image/')) {
@@ -492,6 +555,10 @@ function App() {
   const selectedBoard = boards.find((board) => board.id === selectedThread?.boardId) ?? boards[0]
   const SelectedBoardIcon = selectedBoard.icon
   const draftAssistant = createAssistantAdvice(`${draft.title} ${draft.body} ${draft.tags}`, draft.recognition)
+  const currentMember = members.find((member) => member.id === currentMemberId) ?? null
+  const displayName = currentMember?.name ?? '訪客飼主'
+  const displayAvatar = currentMember?.avatar ?? avatarLabel(displayName)
+  const displayLevel = memberLevel(currentMember?.xp ?? 0)
   const threadReplies = replies.filter((reply) => reply.threadId === selectedThread?.id)
   const visibleThreads = threads
     .filter((thread) => activeBoard === 'all' || thread.boardId === activeBoard)
@@ -506,6 +573,64 @@ function App() {
     return threads.filter((thread) => thread.boardId === boardId).length
   }
 
+  function addMemberXp(amount: number) {
+    if (!currentMemberId) return
+    setMembers((current) =>
+      current.map((member) => (member.id === currentMemberId ? { ...member, xp: member.xp + amount } : member)),
+    )
+  }
+
+  async function uploadAuthAvatar(file: File) {
+    if (!file.type.startsWith('image/')) return
+    const avatar = await readFileAsDataUrl(file)
+    setAuthForm((current) => ({ ...current, avatar }))
+  }
+
+  function openAuth(mode: 'login' | 'register') {
+    setAuthMode(mode)
+    setAuthError('')
+    setAuthForm(emptyAuthForm)
+    setAuthOpen(true)
+  }
+
+  function submitAuth(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const name = authForm.name.trim()
+    const password = authForm.password.trim()
+    if (!name || !password) {
+      setAuthError('請輸入帳號與密碼')
+      return
+    }
+
+    if (authMode === 'login') {
+      const member = members.find((item) => item.name === name && item.password === password)
+      if (!member) {
+        setAuthError('帳號或密碼不正確')
+        return
+      }
+      setCurrentMemberId(member.id)
+      setAuthOpen(false)
+      return
+    }
+
+    if (members.some((member) => member.name === name)) {
+      setAuthError('這個暱稱已被註冊')
+      return
+    }
+
+    const member: Member = {
+      id: Date.now(),
+      name,
+      password,
+      avatar: authForm.avatar || avatarLabel(name),
+      xp: 0,
+      joinedAt: '剛剛',
+    }
+    setMembers((current) => [member, ...current])
+    setCurrentMemberId(member.id)
+    setAuthOpen(false)
+  }
+
   function submitThread(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft.title.trim() || !draft.body.trim()) return
@@ -516,8 +641,9 @@ function App() {
       boardId: draft.boardId === emptyDraft.boardId && !draft.recognition ? assistant.boardId : draft.boardId,
       title: draft.title.trim(),
       body: draft.body.trim(),
-      author: userName.trim() || '訪客飼主',
-      avatar: (userName.trim() || '訪').slice(0, 1),
+      author: displayName,
+      avatar: displayAvatar,
+      memberId: currentMemberId ?? undefined,
       createdAt: '剛剛',
       views: 1,
       likes: 0,
@@ -533,6 +659,7 @@ function App() {
     setDraft(emptyDraft)
     setUploadState({ progress: 0, status: '可選擇、拖放或貼上照片', busy: false })
     setComposerOpen(false)
+    addMemberXp(20)
   }
 
   function submitReply(event: React.FormEvent<HTMLFormElement>) {
@@ -542,8 +669,9 @@ function App() {
     const reply: ThreadReply = {
       id: Date.now(),
       threadId: selectedThread.id,
-      author: userName.trim() || '訪客飼主',
-      avatar: (userName.trim() || '訪').slice(0, 1),
+      author: displayName,
+      avatar: displayAvatar,
+      memberId: currentMemberId ?? undefined,
       body: replyDraft.trim(),
       createdAt: '剛剛',
       likes: 0,
@@ -551,6 +679,7 @@ function App() {
 
     setReplies((current) => [...current, reply])
     setReplyDraft('')
+    addMemberXp(8)
   }
 
   return (
@@ -573,10 +702,30 @@ function App() {
           <button type="button" className="icon-button" aria-label="通知">
             <Bell size={18} />
           </button>
-          <label className="user-chip">
-            <User size={16} />
-            <input value={userName} onChange={(event) => setUserName(event.target.value)} />
-          </label>
+          {currentMember ? (
+            <div className="member-chip">
+              <Avatar avatar={currentMember.avatar} name={currentMember.name} size={30} />
+              <span>
+                <strong>{currentMember.name}</strong>
+                <small>{displayLevel.name} · {currentMember.xp} XP</small>
+              </span>
+            </div>
+          ) : (
+            <button type="button" className="secondary-button" onClick={() => openAuth('login')}>
+              <LogIn size={17} />
+              登入
+            </button>
+          )}
+          {!currentMember ? (
+            <button type="button" className="secondary-button" onClick={() => openAuth('register')}>
+              <UserPlus size={17} />
+              註冊
+            </button>
+          ) : (
+            <button type="button" className="icon-button" aria-label="登出" onClick={() => setCurrentMemberId(null)}>
+              <LogOut size={18} />
+            </button>
+          )}
           <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
             <Plus size={18} />
             發帖
@@ -602,7 +751,7 @@ function App() {
             回覆
           </span>
           <span>
-            <strong>{onlineMembers.length}</strong>
+            <strong>{members.length}</strong>
             在線
           </span>
         </div>
@@ -706,10 +855,12 @@ function App() {
                   </span>
                   <h2>{selectedThread.title}</h2>
                   <div className="author-row">
-                    <span className="avatar">{selectedThread.avatar}</span>
+                    <Avatar avatar={selectedThread.avatar} name={selectedThread.author} />
                     <div>
                       <strong>{selectedThread.author}</strong>
-                      <small>{selectedThread.createdAt}</small>
+                      <small>
+                        {selectedThread.createdAt} · {memberLevel(members.find((member) => member.id === selectedThread.memberId)?.xp ?? 0).name}
+                      </small>
                     </div>
                     <button type="button" className="icon-button" aria-label="收藏">
                       <Bookmark size={18} />
@@ -772,11 +923,13 @@ function App() {
                 {threadReplies.length === 0 && <p className="muted">還沒有回覆，先回一樓。</p>}
                 {threadReplies.map((reply) => (
                   <article className="reply-card" key={reply.id}>
-                    <span className="avatar">{reply.avatar}</span>
+                    <Avatar avatar={reply.avatar} name={reply.author} />
                     <div>
                       <div className="reply-meta">
                         <strong>{reply.author}</strong>
-                        <small>{reply.createdAt}</small>
+                        <small>
+                          {reply.createdAt} · {memberLevel(members.find((member) => member.id === reply.memberId)?.xp ?? 0).name}
+                        </small>
                       </div>
                       <p>{reply.body}</p>
                     </div>
@@ -830,10 +983,13 @@ function App() {
               在線會員
             </div>
             <div className="member-list">
-              {onlineMembers.map((member) => (
-                <span key={member}>
-                  <span className="avatar">{member.slice(0, 1)}</span>
-                  {member}
+              {members.map((member) => (
+                <span key={member.id}>
+                  <Avatar avatar={member.avatar} name={member.name} size={28} />
+                  <span>
+                    <strong>{member.name}</strong>
+                    <small>{memberLevel(member.xp).name} · {member.xp} XP</small>
+                  </span>
                 </span>
               ))}
             </div>
@@ -950,6 +1106,78 @@ function App() {
             <button type="submit" className="primary-button">
               <Send size={17} />
               發佈主題
+            </button>
+          </form>
+        </div>
+      )}
+
+      {authOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={authMode === 'login' ? '會員登入' : '會員註冊'}>
+          <form className="auth-modal" onSubmit={submitAuth}>
+            <div className="modal-head">
+              <div>
+                <span className="eyebrow">
+                  <User size={15} />
+                  會員系統
+                </span>
+                <h2>{authMode === 'login' ? '會員登入' : '註冊會員'}</h2>
+              </div>
+              <button type="button" className="icon-button" aria-label="關閉" onClick={() => setAuthOpen(false)}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <label>
+              暱稱
+              <input
+                value={authForm.name}
+                onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))}
+                placeholder="輸入會員暱稱"
+              />
+            </label>
+            <label>
+              密碼
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                placeholder="輸入密碼"
+              />
+            </label>
+
+            {authMode === 'register' && (
+              <label className="avatar-uploader">
+                大頭貼
+                <span>
+                  <Avatar avatar={authForm.avatar || avatarLabel(authForm.name)} name={authForm.name || '新'} size={56} />
+                  <small>可上傳自己的大頭貼；沒有上傳會使用暱稱首字。</small>
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0]
+                    if (file) void uploadAuthAvatar(file)
+                  }}
+                />
+              </label>
+            )}
+
+            {authError && <p className="auth-error">{authError}</p>}
+
+            <button type="submit" className="primary-button">
+              {authMode === 'login' ? <LogIn size={17} /> : <UserPlus size={17} />}
+              {authMode === 'login' ? '登入' : '完成註冊'}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setAuthMode(authMode === 'login' ? 'register' : 'login')
+                setAuthError('')
+              }}
+            >
+              {authMode === 'login' ? '建立新帳號' : '已有帳號，前往登入'}
             </button>
           </form>
         </div>
