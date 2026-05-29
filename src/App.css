@@ -9,7 +9,7 @@
   top: 0;
   z-index: 20;
   display: grid;
-  grid-template-columns: 280px minmax(260px, 1fr) auto;
+  grid-template-columns: 360px minmax(260px, 1fr) auto;
   gap: 16px;
   align-items: center;
   padding: 14px 24px;
@@ -37,7 +37,7 @@
 }
 
 .brand {
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
   border: 0;
   padding: 0;
@@ -48,18 +48,34 @@
 }
 
 .brand-mark {
+  position: relative;
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 68px;
+  height: 58px;
   place-items: center;
   border-radius: 8px;
   color: #fff;
   background: #24786f;
+  box-shadow: inset 0 -10px 0 rgba(0, 0, 0, 0.08);
+}
+
+.brand-mark b {
+  position: absolute;
+  right: 7px;
+  bottom: 5px;
+  font-size: 12px;
+  line-height: 1;
 }
 
 .brand strong,
 .brand span {
   display: block;
+}
+
+.brand strong {
+  color: #1c1b18;
+  font-size: 18px;
+  line-height: 1.1;
 }
 
 .brand span,
@@ -996,6 +1012,11 @@ h1 {
 
   .topbar {
     padding: 12px 16px;
+  }
+
+  .brand-mark {
+    width: 58px;
+    height: 50px;
   }
 
   .top-actions {

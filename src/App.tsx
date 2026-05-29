@@ -1076,7 +1076,8 @@ function App() {
       <header className="topbar">
         <button type="button" className="brand" onClick={goHome}>
           <span className="brand-mark">
-            <PawPrint size={22} />
+            <PawPrint size={32} />
+            <b>PT</b>
           </span>
           <div>
             <strong>PetTalk 寵物論壇BETA試營運</strong>
