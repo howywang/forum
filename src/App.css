@@ -39,6 +39,12 @@
 .brand {
   gap: 12px;
   min-width: 0;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
 }
 
 .brand-mark {

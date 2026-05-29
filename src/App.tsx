@@ -1062,10 +1062,19 @@ function App() {
     addMemberXp(8)
   }
 
+  function goHome() {
+    setActiveBoard('all')
+    setQuery('')
+    setSelectedThreadId(threads[0]?.id ?? 101)
+    setComposerOpen(false)
+    setAuthOpen(false)
+    setProfileMemberId(null)
+  }
+
   return (
     <main className="forum-shell">
       <header className="topbar">
-        <div className="brand">
+        <button type="button" className="brand" onClick={goHome}>
           <span className="brand-mark">
             <PawPrint size={22} />
           </span>
@@ -1073,7 +1082,7 @@ function App() {
             <strong>PetTalk 寵物論壇</strong>
             <span>米格魯寵物大學 AI 進化版</span>
           </div>
-        </div>
+        </button>
         <label className="search-box">
           <Search size={18} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜尋帖子、標籤、作者" />
