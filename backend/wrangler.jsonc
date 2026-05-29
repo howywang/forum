@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "petlens-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "2a488e02-f484-4090-96d0-da56bbcc5637"
     }
   ]
 }
