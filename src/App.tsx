@@ -190,6 +190,20 @@ const defaultBoards: Board[] = [
   },
 ]
 
+function hydrateBoards(boards: Partial<Board>[] | undefined) {
+  const source = boards?.length ? boards : defaultBoards
+  return source.map((board) => {
+    const fallback = defaultBoards.find((item) => item.id === board.id)
+    return {
+      id: board.id || fallback?.id || 'custom',
+      name: board.name || fallback?.name || '自訂討論區',
+      description: board.description || fallback?.description || '自訂討論區',
+      icon: board.icon || fallback?.icon || PawPrint,
+      accent: board.accent || fallback?.accent || '#24786f',
+    }
+  })
+}
+
 const seedThreads: Thread[] = [
   {
     id: 101,
@@ -459,7 +473,7 @@ function loadState() {
       threads: seedThreads,
       replies: seedReplies,
       members: seedMembers,
-      boards: defaultBoards,
+      boards: hydrateBoards(defaultBoards),
       currentMemberId: null as number | null,
       authToken: '',
     }
@@ -471,7 +485,7 @@ function loadState() {
       threads: seedThreads,
       replies: seedReplies,
       members: seedMembers,
-      boards: defaultBoards,
+      boards: hydrateBoards(defaultBoards),
       currentMemberId: null as number | null,
       authToken: '',
     }
@@ -491,7 +505,7 @@ function loadState() {
       threads: parsed.threads?.length ? parsed.threads : seedThreads,
       replies: parsed.replies?.length ? parsed.replies : seedReplies,
       members: parsed.members?.length ? parsed.members : seedMembers,
-      boards: parsed.boards?.length ? parsed.boards : defaultBoards,
+      boards: hydrateBoards(parsed.boards),
       currentMemberId: parsed.currentMemberId ?? null,
       authToken: parsed.authToken ?? '',
     }
@@ -501,7 +515,7 @@ function loadState() {
       threads: seedThreads,
       replies: seedReplies,
       members: seedMembers,
-      boards: defaultBoards,
+      boards: hydrateBoards(defaultBoards),
       currentMemberId: null as number | null,
       authToken: '',
     }
@@ -555,7 +569,7 @@ function App() {
         setThreads(state.threads.length ? state.threads : seedThreads)
         setReplies(state.replies)
         setMembers(state.members.length ? state.members : seedMembers)
-        setBoards(state.boards.length ? state.boards.map((board) => ({ ...board, icon: PawPrint })) : defaultBoards)
+        setBoards(hydrateBoards(state.boards))
         setSyncStatus('已連線後端資料庫')
       })
       .catch(() => setSyncStatus('後端未連線，使用本機資料'))
@@ -581,7 +595,7 @@ function App() {
     setThreads(state.threads.length ? state.threads : seedThreads)
     setReplies(state.replies)
     setMembers(state.members.length ? state.members : seedMembers)
-    setBoards(state.boards.length ? state.boards.map((board) => ({ ...board, icon: PawPrint })) : defaultBoards)
+    setBoards(hydrateBoards(state.boards))
   }
 
   async function analyzeFile(file: File) {
