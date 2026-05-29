@@ -7,7 +7,9 @@
     "enabled": true
   },
   "vars": {
-    "ALLOWED_ORIGIN": "*"
+    "ALLOWED_ORIGIN": "*",
+    "FRONTEND_BASE_URL": "https://howywang.github.io/forum",
+    "RESEND_FROM_EMAIL": "PetTalk <onboarding@resend.dev>"
   },
   "d1_databases": [
     {

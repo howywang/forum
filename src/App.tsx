@@ -110,6 +110,7 @@ type UploadState = {
 type Member = {
   id: number
   name: string
+  email?: string
   password?: string
   avatar: string
   xp: number
@@ -126,6 +127,7 @@ type BoardDraft = {
 
 type AuthForm = {
   name: string
+  email: string
   password: string
   avatar: string
 }
@@ -313,6 +315,7 @@ const emptyDraft: Draft = {
 
 const emptyAuthForm: AuthForm = {
   name: '',
+  email: '',
   password: '',
   avatar: '',
 }
@@ -550,6 +553,10 @@ function loadState() {
 
 function App() {
   const initialState = useMemo(() => loadState(), [])
+  const initialResetToken = useMemo(() => {
+    if (typeof window === 'undefined') return ''
+    return new URLSearchParams(window.location.search).get('reset') ?? ''
+  }, [])
   const [threads, setThreads] = useState<Thread[]>(() => initialState.threads)
   const [replies, setReplies] = useState<ThreadReply[]>(() => initialState.replies)
   const [members, setMembers] = useState<Member[]>(() => initialState.members)
@@ -563,9 +570,10 @@ function App() {
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [replyDraft, setReplyDraft] = useState('')
   const [composerOpen, setComposerOpen] = useState(false)
-  const [authOpen, setAuthOpen] = useState(false)
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
+  const [authOpen, setAuthOpen] = useState(Boolean(initialResetToken))
+  const [authMode, setAuthMode] = useState<'login' | 'register' | 'forgot' | 'reset'>(initialResetToken ? 'reset' : 'login')
   const [authForm, setAuthForm] = useState<AuthForm>(emptyAuthForm)
+  const [resetToken, setResetToken] = useState(initialResetToken)
   const [boardDraft, setBoardDraft] = useState<BoardDraft>(emptyBoardDraft)
   const [authError, setAuthError] = useState('')
   const [profileMemberId, setProfileMemberId] = useState<number | null>(null)
@@ -739,7 +747,7 @@ function App() {
     setProfileMemberId(member.id)
     setProfileError('')
     setGiftMessage('')
-    setProfileForm({ name: member.name, password: '', avatar: member.avatar })
+    setProfileForm({ name: member.name, email: member.email ?? '', password: '', avatar: member.avatar })
   }
 
   async function uploadProfileAvatar(file: File) {
@@ -816,7 +824,7 @@ function App() {
     setAuthForm((current) => ({ ...current, avatar }))
   }
 
-  function openAuth(mode: 'login' | 'register') {
+  function openAuth(mode: 'login' | 'register' | 'forgot' | 'reset') {
     setAuthMode(mode)
     setAuthError('')
     setAuthForm(emptyAuthForm)
@@ -832,9 +840,60 @@ function App() {
   async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = authForm.name.trim()
+    const email = authForm.email.trim().toLowerCase()
     const password = authForm.password.trim()
+
+    if (authMode === 'forgot') {
+      if (!email) {
+        setAuthError('請輸入註冊 Email')
+        return
+      }
+      if (!apiBase) {
+        setAuthError('本機模式不支援寄送重設密碼信')
+        return
+      }
+      try {
+        await apiFetch<{ ok: boolean }>('/api/auth/forgot-password', {
+          method: 'POST',
+          body: JSON.stringify({ email }),
+        })
+        setAuthError('如果 Email 已註冊，系統會寄出重設密碼連結。')
+      } catch {
+        setAuthError('寄信服務尚未設定，請稍後再試')
+      }
+      return
+    }
+
+    if (authMode === 'reset') {
+      if (!password || password.length < 6) {
+        setAuthError('請輸入至少 6 碼的新密碼')
+        return
+      }
+      if (!apiBase || !resetToken) {
+        setAuthError('重設連結無效')
+        return
+      }
+      try {
+        await apiFetch<{ ok: boolean }>('/api/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({ token: resetToken, password }),
+        })
+        setAuthError('密碼已更新，請使用新密碼登入。')
+        setAuthMode('login')
+        setResetToken('')
+        window.history.replaceState({}, '', window.location.pathname)
+      } catch {
+        setAuthError('重設連結無效或已過期')
+      }
+      return
+    }
+
     if (!name || !password) {
       setAuthError('請輸入帳號與密碼')
+      return
+    }
+    if (authMode === 'register' && !email) {
+      setAuthError('請輸入 Email，之後才能使用忘記密碼')
       return
     }
 
@@ -842,7 +901,7 @@ function App() {
       try {
         const session = await apiFetch<AuthSession>(authMode === 'login' ? '/api/auth/login' : '/api/auth/register', {
           method: 'POST',
-          body: JSON.stringify({ name, password, avatar: authForm.avatar || avatarLabel(name) }),
+          body: JSON.stringify({ name, email, password, avatar: authForm.avatar || avatarLabel(name) }),
         })
         setAuthToken(session.token)
         setCurrentMemberId(session.member.id)
@@ -851,7 +910,7 @@ function App() {
         setAuthError('')
         await refreshState()
       } catch {
-        setAuthError(authMode === 'login' ? '帳號或密碼不正確' : '這個暱稱已被註冊')
+        setAuthError(authMode === 'login' ? '帳號或密碼不正確' : '這個暱稱或 Email 已被註冊')
       }
       return
     }
@@ -876,6 +935,7 @@ function App() {
     const member: Member = {
       id: Date.now(),
       name,
+      email,
       password,
       avatar: authForm.avatar || avatarLabel(name),
       xp: 0,
@@ -901,6 +961,7 @@ function App() {
           method: 'PATCH',
           body: JSON.stringify({
             name,
+            email: profileForm.email.trim().toLowerCase() || undefined,
             password: profileForm.password.trim() || undefined,
             avatar: profileForm.avatar || avatarLabel(name),
           }),
@@ -922,6 +983,7 @@ function App() {
           ? {
               ...member,
               name,
+              email: profileForm.email.trim().toLowerCase() || member.email,
               password: profileForm.password.trim() || member.password,
               avatar: nextAvatar,
             }
@@ -1577,7 +1639,7 @@ function App() {
       )}
 
       {authOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={authMode === 'login' ? '會員登入' : '會員註冊'}>
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="會員系統">
           <form className="auth-modal" onSubmit={submitAuth}>
             <div className="modal-head">
               <div>
@@ -1585,30 +1647,55 @@ function App() {
                   <User size={15} />
                   會員系統
                 </span>
-                <h2>{authMode === 'login' ? '會員登入' : '註冊會員'}</h2>
+                <h2>
+                  {authMode === 'login'
+                    ? '會員登入'
+                    : authMode === 'register'
+                      ? '註冊會員'
+                      : authMode === 'forgot'
+                        ? '忘記密碼'
+                        : '重設密碼'}
+                </h2>
               </div>
               <button type="button" className="icon-button" aria-label="關閉" onClick={() => setAuthOpen(false)}>
                 <X size={18} />
               </button>
             </div>
 
-            <label>
-              暱稱
-              <input
-                value={authForm.name}
-                onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="輸入會員暱稱"
-              />
-            </label>
-            <label>
-              密碼
-              <input
-                type="password"
-                value={authForm.password}
-                onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder="輸入密碼"
-              />
-            </label>
+            {(authMode === 'login' || authMode === 'register') && (
+              <label>
+                暱稱
+                <input
+                  value={authForm.name}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="輸入會員暱稱"
+                />
+              </label>
+            )}
+
+            {(authMode === 'register' || authMode === 'forgot') && (
+              <label>
+                Email
+                <input
+                  type="email"
+                  value={authForm.email}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, email: event.target.value }))}
+                  placeholder="輸入註冊 Email"
+                />
+              </label>
+            )}
+
+            {authMode !== 'forgot' && (
+              <label>
+                {authMode === 'reset' ? '新密碼' : '密碼'}
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={(event) => setAuthForm((current) => ({ ...current, password: event.target.value }))}
+                  placeholder={authMode === 'reset' ? '至少 6 碼' : '輸入密碼'}
+                />
+              </label>
+            )}
 
             {authMode === 'register' && (
               <label className="avatar-uploader">
@@ -1631,21 +1718,41 @@ function App() {
             {authError && <p className="auth-error">{authError}</p>}
 
             <button type="submit" className="primary-button">
-              {authMode === 'login' ? <LogIn size={17} /> : <UserPlus size={17} />}
-              {authMode === 'login' ? '登入' : '完成註冊'}
+              {authMode === 'login' ? <LogIn size={17} /> : authMode === 'register' ? <UserPlus size={17} /> : <Send size={17} />}
+              {authMode === 'login'
+                ? '登入'
+                : authMode === 'register'
+                  ? '完成註冊'
+                  : authMode === 'forgot'
+                    ? '寄送重設信'
+                    : '更新密碼'}
             </button>
-            <button type="button" className="secondary-button" onClick={resetLocalMembers}>
-              重置本機會員資料
-            </button>
+            {!apiBase && (
+              <button type="button" className="secondary-button" onClick={resetLocalMembers}>
+                重置本機會員資料
+              </button>
+            )}
+            {authMode === 'login' && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setAuthMode('forgot')
+                  setAuthError('')
+                }}
+              >
+                忘記密碼
+              </button>
+            )}
             <button
               type="button"
               className="secondary-button"
               onClick={() => {
-                setAuthMode(authMode === 'login' ? 'register' : 'login')
+                setAuthMode(authMode === 'register' ? 'login' : 'register')
                 setAuthError('')
               }}
             >
-              {authMode === 'login' ? '建立新帳號' : '已有帳號，前往登入'}
+              {authMode === 'register' ? '已有帳號，前往登入' : '建立新帳號'}
             </button>
           </form>
         </div>
@@ -1693,6 +1800,15 @@ function App() {
                     value={profileForm.password}
                     onChange={(event) => setProfileForm((current) => ({ ...current, password: event.target.value }))}
                     placeholder="不修改可留空"
+                  />
+                </label>
+                <label>
+                  Email
+                  <input
+                    type="email"
+                    value={profileForm.email}
+                    onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))}
+                    placeholder="用於忘記密碼寄送"
                   />
                 </label>
                 <label className="avatar-uploader">

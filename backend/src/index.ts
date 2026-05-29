@@ -1,11 +1,15 @@
 type Env = {
   DB: D1Database
   ALLOWED_ORIGIN?: string
+  FRONTEND_BASE_URL?: string
+  RESEND_API_KEY?: string
+  RESEND_FROM_EMAIL?: string
 }
 
 type MemberRow = {
   id: number
   name: string
+  email: string | null
   password_hash: string
   avatar: string
   xp: number
@@ -52,6 +56,7 @@ type ReplyRow = {
 type PublicMember = {
   id: number
   name: string
+  email?: string
   avatar: string
   xp: number
   role: 'admin' | 'member'
@@ -98,10 +103,21 @@ async function sha256(value: string) {
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
-function toPublicMember(row: MemberRow, giftsReceived = 0): PublicMember {
+function randomToken() {
+  const bytes = new Uint8Array(32)
+  crypto.getRandomValues(bytes)
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+function isEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function toPublicMember(row: MemberRow, giftsReceived = 0, includeEmail = false): PublicMember {
   return {
     id: row.id,
     name: row.name,
+    ...(includeEmail && row.email ? { email: row.email } : {}),
     avatar: row.avatar,
     xp: row.xp,
     role: row.role,
@@ -158,7 +174,7 @@ async function currentMember(request: Request, env: Env) {
 
   try {
     const payload = JSON.parse(atob(token)) as { id: number }
-    return env.DB.prepare('SELECT id, name, password_hash, avatar, xp, role, created_at FROM members WHERE id = ?1')
+    return env.DB.prepare('SELECT id, name, email, password_hash, avatar, xp, role, created_at FROM members WHERE id = ?1')
       .bind(payload.id)
       .first<MemberRow>()
   } catch {
@@ -166,9 +182,10 @@ async function currentMember(request: Request, env: Env) {
   }
 }
 
-async function getState(env: Env) {
+async function getState(request: Request, env: Env) {
+  const viewer = await currentMember(request, env)
   const [members, giftCounts, boards, threads, replies] = await Promise.all([
-    env.DB.prepare('SELECT id, name, password_hash, avatar, xp, role, created_at FROM members ORDER BY xp DESC LIMIT 100').all<MemberRow>(),
+    env.DB.prepare('SELECT id, name, email, password_hash, avatar, xp, role, created_at FROM members ORDER BY xp DESC LIMIT 100').all<MemberRow>(),
     env.DB.prepare('SELECT receiver_id, COUNT(*) AS total FROM gifts GROUP BY receiver_id').all<{ receiver_id: number; total: number }>(),
     env.DB.prepare('SELECT id, name, description, accent FROM boards ORDER BY created_at ASC').all<BoardRow>(),
     env.DB.prepare('SELECT * FROM threads ORDER BY pinned DESC, created_at DESC LIMIT 100').all<ThreadRow>(),
@@ -178,7 +195,7 @@ async function getState(env: Env) {
 
   return json(
     {
-      members: members.results.map((member) => toPublicMember(member, giftsByMember.get(member.id) ?? 0)),
+      members: members.results.map((member) => toPublicMember(member, giftsByMember.get(member.id) ?? 0, member.id === viewer?.id)),
       boards: boards.results.map(mapBoard),
       threads: threads.results.map(mapThread),
       replies: replies.results.map(mapReply),
@@ -188,29 +205,31 @@ async function getState(env: Env) {
 }
 
 async function register(request: Request, env: Env) {
-  const body = (await request.json().catch(() => null)) as Partial<{ name: string; password: string; avatar: string }> | null
+  const body = (await request.json().catch(() => null)) as Partial<{ name: string; email: string; password: string; avatar: string }> | null
   const name = body?.name?.trim()
+  const email = body?.email?.trim().toLowerCase()
   const password = body?.password?.trim()
-  if (!name || !password) return json({ error: 'name and password are required' }, env, { status: 400 })
+  if (!name || !email || !password) return json({ error: 'name, email and password are required' }, env, { status: 400 })
+  if (!isEmail(email)) return json({ error: 'email is invalid' }, env, { status: 400 })
 
   const role = name === 'HowyWang' ? 'admin' : 'member'
   const passwordHash = await sha256(password)
   const avatar = body?.avatar || name.slice(0, 1)
 
   try {
-    await env.DB.prepare('INSERT INTO members (name, password_hash, avatar, role) VALUES (?1, ?2, ?3, ?4)')
-      .bind(name, passwordHash, avatar, role)
+    await env.DB.prepare('INSERT INTO members (name, email, password_hash, avatar, role) VALUES (?1, ?2, ?3, ?4, ?5)')
+      .bind(name, email, passwordHash, avatar, role)
       .run()
   } catch {
-    return json({ error: 'name is already registered' }, env, { status: 409 })
+    return json({ error: 'name or email is already registered' }, env, { status: 409 })
   }
 
-  const row = await env.DB.prepare('SELECT id, name, password_hash, avatar, xp, role, created_at FROM members WHERE name = ?1')
+  const row = await env.DB.prepare('SELECT id, name, email, password_hash, avatar, xp, role, created_at FROM members WHERE name = ?1')
     .bind(name)
     .first<MemberRow>()
 
   if (!row) return json({ error: 'member not found after register' }, env, { status: 500 })
-  return json({ token: tokenFor(row), member: toPublicMember(row) } satisfies SessionPayload, env, { status: 201 })
+  return json({ token: tokenFor(row), member: toPublicMember(row, 0, true) } satisfies SessionPayload, env, { status: 201 })
 }
 
 async function login(request: Request, env: Env) {
@@ -219,14 +238,86 @@ async function login(request: Request, env: Env) {
   const password = body?.password?.trim()
   if (!name || !password) return json({ error: 'name and password are required' }, env, { status: 400 })
 
-  const row = await env.DB.prepare('SELECT id, name, password_hash, avatar, xp, role, created_at FROM members WHERE name = ?1')
+  const row = await env.DB.prepare('SELECT id, name, email, password_hash, avatar, xp, role, created_at FROM members WHERE name = ?1')
     .bind(name)
     .first<MemberRow>()
   if (!row || row.password_hash !== (await sha256(password))) {
     return json({ error: 'invalid credentials' }, env, { status: 401 })
   }
 
-  return json({ token: tokenFor(row), member: toPublicMember(row) } satisfies SessionPayload, env)
+  return json({ token: tokenFor(row), member: toPublicMember(row, 0, true) } satisfies SessionPayload, env)
+}
+
+async function forgotPassword(request: Request, env: Env) {
+  const body = (await request.json().catch(() => null)) as Partial<{ email: string }> | null
+  const email = body?.email?.trim().toLowerCase()
+  if (!email || !isEmail(email)) return json({ error: 'email is invalid' }, env, { status: 400 })
+
+  const member = await env.DB.prepare('SELECT id, name, email, password_hash, avatar, xp, role, created_at FROM members WHERE email = ?1')
+    .bind(email)
+    .first<MemberRow>()
+
+  if (!member) return json({ ok: true }, env)
+  if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
+    return json({ error: 'email service is not configured' }, env, { status: 503 })
+  }
+
+  const token = randomToken()
+  const tokenHash = await sha256(token)
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString()
+  await env.DB.prepare('INSERT INTO password_reset_tokens (member_id, token_hash, expires_at) VALUES (?1, ?2, ?3)')
+    .bind(member.id, tokenHash, expiresAt)
+    .run()
+
+  const baseUrl = env.FRONTEND_BASE_URL || request.headers.get('Origin') || 'https://howywang.github.io/forum/'
+  const resetUrl = `${baseUrl.replace(/\/$/, '')}/?reset=${encodeURIComponent(token)}`
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      from: env.RESEND_FROM_EMAIL,
+      to: [email],
+      subject: '米格魯寵物大學：重設密碼',
+      html: `<p>${member.name} 你好：</p><p>請在 15 分鐘內點擊以下連結重設密碼：</p><p><a href="${resetUrl}">${resetUrl}</a></p><p>如果不是你本人操作，請忽略這封信。</p>`,
+      text: `${member.name} 你好：\n\n請在 15 分鐘內開啟以下連結重設密碼：\n${resetUrl}\n\n如果不是你本人操作，請忽略這封信。`,
+    }),
+  })
+
+  if (!response.ok) {
+    return json({ error: 'email failed to send' }, env, { status: 502 })
+  }
+
+  return json({ ok: true }, env)
+}
+
+async function resetPassword(request: Request, env: Env) {
+  const body = (await request.json().catch(() => null)) as Partial<{ token: string; password: string }> | null
+  const token = body?.token?.trim()
+  const password = body?.password?.trim()
+  if (!token || !password || password.length < 6) {
+    return json({ error: 'token and password are required' }, env, { status: 400 })
+  }
+
+  const tokenHash = await sha256(token)
+  const reset = await env.DB.prepare(
+    'SELECT id, member_id, expires_at, used_at FROM password_reset_tokens WHERE token_hash = ?1 ORDER BY created_at DESC LIMIT 1',
+  )
+    .bind(tokenHash)
+    .first<{ id: number; member_id: number; expires_at: string; used_at: string | null }>()
+
+  if (!reset || reset.used_at || Date.parse(reset.expires_at) < Date.now()) {
+    return json({ error: 'reset link is invalid or expired' }, env, { status: 400 })
+  }
+
+  await Promise.all([
+    env.DB.prepare('UPDATE members SET password_hash = ?1 WHERE id = ?2').bind(await sha256(password), reset.member_id).run(),
+    env.DB.prepare('UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE id = ?1').bind(reset.id).run(),
+  ])
+
+  return json({ ok: true }, env)
 }
 
 async function updateMember(request: Request, env: Env, id: string) {
@@ -234,23 +325,26 @@ async function updateMember(request: Request, env: Env, id: string) {
   const memberId = Number(id)
   if (!member || member.id !== memberId) return json({ error: 'self only' }, env, { status: 403 })
 
-  const body = (await request.json().catch(() => null)) as Partial<{ name: string; password: string; avatar: string }> | null
+  const body = (await request.json().catch(() => null)) as Partial<{ name: string; email: string; password: string; avatar: string }> | null
   const name = body?.name?.trim()
+  const email = body?.email?.trim().toLowerCase()
   const password = body?.password?.trim()
   const avatar = body?.avatar?.trim()
 
-  if (!name && !password && !avatar) return json({ error: 'nothing to update' }, env, { status: 400 })
+  if (email && !isEmail(email)) return json({ error: 'email is invalid' }, env, { status: 400 })
+  if (!name && !email && !password && !avatar) return json({ error: 'nothing to update' }, env, { status: 400 })
 
   const nextName = name || member.name
+  const nextEmail = email || member.email
   const nextAvatar = avatar || member.avatar
   const nextPasswordHash = password ? await sha256(password) : member.password_hash
 
   try {
-    await env.DB.prepare('UPDATE members SET name = ?1, avatar = ?2, password_hash = ?3 WHERE id = ?4')
-      .bind(nextName, nextAvatar, nextPasswordHash, member.id)
+    await env.DB.prepare('UPDATE members SET name = ?1, email = ?2, avatar = ?3, password_hash = ?4 WHERE id = ?5')
+      .bind(nextName, nextEmail, nextAvatar, nextPasswordHash, member.id)
       .run()
   } catch {
-    return json({ error: 'name is already registered' }, env, { status: 409 })
+    return json({ error: 'name or email is already registered' }, env, { status: 409 })
   }
 
   await Promise.all([
@@ -258,11 +352,11 @@ async function updateMember(request: Request, env: Env, id: string) {
     env.DB.prepare('UPDATE replies SET author = ?1, avatar = ?2 WHERE member_id = ?3').bind(nextName, nextAvatar, member.id).run(),
   ])
 
-  const row = await env.DB.prepare('SELECT id, name, password_hash, avatar, xp, role, created_at FROM members WHERE id = ?1')
+  const row = await env.DB.prepare('SELECT id, name, email, password_hash, avatar, xp, role, created_at FROM members WHERE id = ?1')
     .bind(member.id)
     .first<MemberRow>()
   if (!row) return json({ error: 'member not found' }, env, { status: 404 })
-  return json({ token: tokenFor(row), member: toPublicMember(row) } satisfies SessionPayload, env)
+  return json({ token: tokenFor(row), member: toPublicMember(row, 0, true) } satisfies SessionPayload, env)
 }
 
 async function sendGift(request: Request, env: Env, id: string) {
@@ -368,9 +462,11 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { headers: corsHeaders(env) })
     if (url.pathname === '/health') return json({ ok: true, service: 'petlens-api' }, env)
-    if (url.pathname === '/api/state' && request.method === 'GET') return getState(env)
+    if (url.pathname === '/api/state' && request.method === 'GET') return getState(request, env)
     if (url.pathname === '/api/auth/register' && request.method === 'POST') return register(request, env)
     if (url.pathname === '/api/auth/login' && request.method === 'POST') return login(request, env)
+    if (url.pathname === '/api/auth/forgot-password' && request.method === 'POST') return forgotPassword(request, env)
+    if (url.pathname === '/api/auth/reset-password' && request.method === 'POST') return resetPassword(request, env)
     if (url.pathname.startsWith('/api/members/') && url.pathname.endsWith('/gift') && request.method === 'POST') {
       return sendGift(request, env, url.pathname.split('/').at(-2) || '')
     }
