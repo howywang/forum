@@ -823,6 +823,12 @@ function App() {
     setAuthOpen(true)
   }
 
+  function openComposer(boardId?: string) {
+    const targetBoardId = boardId || (activeBoard === 'all' ? emptyDraft.boardId : activeBoard)
+    setDraft((current) => ({ ...current, boardId: targetBoardId }))
+    setComposerOpen(true)
+  }
+
   async function submitAuth(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const name = authForm.name.trim()
@@ -1108,7 +1114,7 @@ function App() {
               <LogOut size={18} />
             </button>
           )}
-          <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
+          <button type="button" className="primary-button" onClick={() => openComposer()}>
             <Plus size={18} />
             發帖
           </button>
@@ -1200,7 +1206,7 @@ function App() {
               </span>
               <h2>{activeBoard === 'all' ? '全部主題' : boards.find((board) => board.id === activeBoard)?.name}</h2>
             </div>
-            <button type="button" className="secondary-button" onClick={() => setComposerOpen(true)}>
+            <button type="button" className="secondary-button" onClick={() => openComposer()}>
               <Plus size={17} />
               新主題
             </button>
@@ -1393,7 +1399,7 @@ function App() {
               照片辨識發帖
             </div>
             <p>AI 使用瀏覽器端 MobileNet，不需要 token。可選檔、拖放或 Cmd/Ctrl+V 貼上圖片，辨識後自動帶入發帖內容。</p>
-            <button type="button" className="primary-button" onClick={() => setComposerOpen(true)}>
+            <button type="button" className="primary-button" onClick={() => openComposer('identify')}>
               <Upload size={17} />
               上傳並發帖
             </button>
