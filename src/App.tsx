@@ -1079,7 +1079,7 @@ function App() {
             <PawPrint size={22} />
           </span>
           <div>
-            <strong>PetTalk 寵物論壇</strong>
+            <strong>PetTalk 寵物論壇BETA試營運</strong>
             <span>米格魯寵物大學 AI 進化版</span>
           </div>
         </button>
