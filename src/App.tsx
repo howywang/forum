@@ -143,6 +143,7 @@ type AuthSession = {
 }
 
 const storageKey = 'pet-discuz-forum-v1'
+const sessionStorageKey = 'pet-discuz-session-v2'
 const apiBase = import.meta.env.VITE_API_BASE?.replace(/\/$/, '')
 
 const defaultBoards: Board[] = [
@@ -479,6 +480,33 @@ function loadState() {
     }
   }
 
+  if (apiBase) {
+    const storedSession = window.localStorage.getItem(sessionStorageKey)
+    try {
+      const parsedSession = storedSession
+        ? (JSON.parse(storedSession) as Partial<{ currentMemberId: number | null; authToken: string }>)
+        : {}
+      return {
+        threads: seedThreads,
+        replies: seedReplies,
+        members: seedMembers,
+        boards: hydrateBoards(defaultBoards),
+        currentMemberId: parsedSession.currentMemberId ?? null,
+        authToken: parsedSession.authToken ?? '',
+      }
+    } catch {
+      window.localStorage.removeItem(sessionStorageKey)
+      return {
+        threads: seedThreads,
+        replies: seedReplies,
+        members: seedMembers,
+        boards: hydrateBoards(defaultBoards),
+        currentMemberId: null as number | null,
+        authToken: '',
+      }
+    }
+  }
+
   const stored = window.localStorage.getItem(storageKey)
   if (!stored) {
     return {
@@ -555,7 +583,11 @@ function App() {
   const modelRef = useRef<MobileNet | null>(null)
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify({ threads, replies, members, boards, currentMemberId, authToken }))
+    const session = JSON.stringify({ currentMemberId, authToken })
+    window.localStorage.setItem(sessionStorageKey, session)
+    if (!apiBase) {
+      window.localStorage.setItem(storageKey, JSON.stringify({ threads, replies, members, boards, currentMemberId, authToken }))
+    }
   }, [authToken, boards, currentMemberId, members, replies, threads])
 
   useEffect(() => {
@@ -570,10 +602,14 @@ function App() {
         setReplies(state.replies)
         setMembers(state.members.length ? state.members : seedMembers)
         setBoards(hydrateBoards(state.boards))
+        if (currentMemberId && !state.members.some((member) => member.id === currentMemberId)) {
+          setCurrentMemberId(null)
+          setAuthToken('')
+        }
         setSyncStatus('已連線後端資料庫')
       })
       .catch(() => setSyncStatus('後端未連線，使用本機資料'))
-  }, [])
+  }, [currentMemberId])
 
   async function apiFetch<T>(path: string, init: RequestInit = {}) {
     if (!apiBase) throw new Error('api not configured')
