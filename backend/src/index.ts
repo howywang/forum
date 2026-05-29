@@ -365,12 +365,25 @@ async function sendGift(request: Request, env: Env, id: string) {
   if (!sender) return json({ error: 'login required' }, env, { status: 401 })
   if (!receiverId || sender.id === receiverId) return json({ error: 'invalid receiver' }, env, { status: 400 })
 
-  const body = (await request.json().catch(() => null)) as Partial<{ message: string }> | null
+  const body = (await request.json().catch(() => null)) as Partial<{
+    message: string
+    giftType: string
+    giftName: string
+    giftImage: string
+  }> | null
   const receiver = await env.DB.prepare('SELECT id FROM members WHERE id = ?1').bind(receiverId).first<{ id: number }>()
   if (!receiver) return json({ error: 'receiver not found' }, env, { status: 404 })
 
-  await env.DB.prepare('INSERT INTO gifts (sender_id, receiver_id, message) VALUES (?1, ?2, ?3)')
-    .bind(sender.id, receiverId, body?.message?.trim().slice(0, 120) || '送你一個寵物大學禮物')
+  const giftName = body?.giftName?.trim().slice(0, 40) || '祝福花束'
+  await env.DB.prepare('INSERT INTO gifts (sender_id, receiver_id, message, gift_type, gift_name, gift_image) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+    .bind(
+      sender.id,
+      receiverId,
+      body?.message?.trim().slice(0, 120) || `送你一份${giftName}`,
+      body?.giftType?.trim().slice(0, 40) || 'bouquet',
+      giftName,
+      body?.giftImage?.trim().slice(0, 500) || '',
+    )
     .run()
   await Promise.all([
     env.DB.prepare('UPDATE members SET xp = xp + 10 WHERE id = ?1').bind(receiverId).run(),

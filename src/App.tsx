@@ -144,9 +144,48 @@ type AuthSession = {
   member: Member
 }
 
+type GiftOption = {
+  id: string
+  name: string
+  image: string
+}
+
 const storageKey = 'pet-discuz-forum-v1'
 const sessionStorageKey = 'pet-discuz-session-v2'
 const apiBase = import.meta.env.VITE_API_BASE?.replace(/\/$/, '')
+
+const giftOptions: GiftOption[] = [
+  {
+    id: 'sunflower',
+    name: '向日葵',
+    image: 'https://images.unsplash.com/photo-1470509037663-253afd7f0f51?auto=format&fit=crop&w=240&h=180&q=80',
+  },
+  {
+    id: 'rose',
+    name: '玫瑰花束',
+    image: 'https://images.unsplash.com/photo-1518709779341-56cf4535e94b?auto=format&fit=crop&w=240&h=180&q=80',
+  },
+  {
+    id: 'tulip',
+    name: '鬱金香',
+    image: 'https://images.unsplash.com/photo-1520763185298-1b434c919102?auto=format&fit=crop&w=240&h=180&q=80',
+  },
+  {
+    id: 'lavender',
+    name: '薰衣草',
+    image: 'https://images.unsplash.com/photo-1499002238440-d264edd596ec?auto=format&fit=crop&w=240&h=180&q=80',
+  },
+  {
+    id: 'daisy',
+    name: '小雛菊',
+    image: 'https://images.unsplash.com/photo-1508610048659-a06b669e3321?auto=format&fit=crop&w=240&h=180&q=80',
+  },
+  {
+    id: 'bouquet',
+    name: '祝福花束',
+    image: 'https://images.unsplash.com/photo-1525310072745-f49212b5ac6d?auto=format&fit=crop&w=240&h=180&q=80',
+  },
+]
 
 const defaultBoards: Board[] = [
   {
@@ -580,6 +619,7 @@ function App() {
   const [profileForm, setProfileForm] = useState<AuthForm>(emptyAuthForm)
   const [profileError, setProfileError] = useState('')
   const [giftMessage, setGiftMessage] = useState('')
+  const [selectedGiftId, setSelectedGiftId] = useState(giftOptions[0].id)
   const [uploadState, setUploadState] = useState<UploadState>({
     progress: 0,
     status: '可選擇、拖放或貼上照片',
@@ -747,6 +787,7 @@ function App() {
     setProfileMemberId(member.id)
     setProfileError('')
     setGiftMessage('')
+    setSelectedGiftId(giftOptions[0].id)
     setProfileForm({ name: member.name, email: member.email ?? '', password: '', avatar: member.avatar })
   }
 
@@ -1004,12 +1045,13 @@ function App() {
   async function sendGiftToProfile() {
     const receiver = members.find((member) => member.id === profileMemberId)
     if (!currentMember || !receiver || receiver.id === currentMember.id) return
+    const gift = giftOptions.find((option) => option.id === selectedGiftId) ?? giftOptions[0]
 
     if (apiBase) {
       try {
         await apiFetch<{ ok: boolean }>(`/api/members/${receiver.id}/gift`, {
           method: 'POST',
-          body: JSON.stringify({ message: giftMessage }),
+          body: JSON.stringify({ message: giftMessage, giftType: gift.id, giftName: gift.name, giftImage: gift.image }),
         })
         await refreshState()
         setGiftMessage('')
@@ -1833,6 +1875,19 @@ function App() {
               </section>
             ) : (
               <section className="gift-panel">
+                <div className="gift-grid" role="radiogroup" aria-label="選擇送禮花束">
+                  {giftOptions.map((gift) => (
+                    <button
+                      type="button"
+                      key={gift.id}
+                      className={selectedGiftId === gift.id ? 'is-selected' : ''}
+                      onClick={() => setSelectedGiftId(gift.id)}
+                    >
+                      <img src={gift.image} alt="" />
+                      <span>{gift.name}</span>
+                    </button>
+                  ))}
+                </div>
                 <label>
                   送禮留言
                   <input
