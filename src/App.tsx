@@ -469,12 +469,16 @@ function createAssistantAdvice(input: string, recognition?: Thread['recognition'
 }
 
 function loadState() {
+  const remoteState = {
+    threads: [] as Thread[],
+    replies: [] as ThreadReply[],
+    members: [] as Member[],
+    boards: hydrateBoards(defaultBoards),
+  }
+
   if (typeof window === 'undefined') {
     return {
-      threads: seedThreads,
-      replies: seedReplies,
-      members: seedMembers,
-      boards: hydrateBoards(defaultBoards),
+      ...remoteState,
       currentMemberId: null as number | null,
       authToken: '',
     }
@@ -487,20 +491,14 @@ function loadState() {
         ? (JSON.parse(storedSession) as Partial<{ currentMemberId: number | null; authToken: string }>)
         : {}
       return {
-        threads: seedThreads,
-        replies: seedReplies,
-        members: seedMembers,
-        boards: hydrateBoards(defaultBoards),
+        ...remoteState,
         currentMemberId: parsedSession.currentMemberId ?? null,
         authToken: parsedSession.authToken ?? '',
       }
     } catch {
       window.localStorage.removeItem(sessionStorageKey)
       return {
-        threads: seedThreads,
-        replies: seedReplies,
-        members: seedMembers,
-        boards: hydrateBoards(defaultBoards),
+        ...remoteState,
         currentMemberId: null as number | null,
         authToken: '',
       }
@@ -560,7 +558,7 @@ function App() {
   const [authToken, setAuthToken] = useState(() => initialState.authToken)
   const [syncStatus, setSyncStatus] = useState(apiBase ? '正在連線後端' : '本機模式')
   const [activeBoard, setActiveBoard] = useState<string | 'all'>('all')
-  const [selectedThreadId, setSelectedThreadId] = useState(initialState.threads[0]?.id ?? 101)
+  const [selectedThreadId, setSelectedThreadId] = useState(initialState.threads[0]?.id ?? null)
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState<Draft>(emptyDraft)
   const [replyDraft, setReplyDraft] = useState('')
@@ -598,10 +596,11 @@ function App() {
         return response.json() as Promise<ApiState>
       })
       .then((state) => {
-        setThreads(state.threads.length ? state.threads : seedThreads)
+        setThreads(state.threads)
         setReplies(state.replies)
-        setMembers(state.members.length ? state.members : seedMembers)
+        setMembers(state.members)
         setBoards(hydrateBoards(state.boards))
+        setSelectedThreadId((current) => current ?? state.threads[0]?.id ?? null)
         if (currentMemberId && !state.members.some((member) => member.id === currentMemberId)) {
           setCurrentMemberId(null)
           setAuthToken('')
@@ -628,10 +627,11 @@ function App() {
   async function refreshState() {
     if (!apiBase) return
     const state = await apiFetch<ApiState>('/api/state')
-    setThreads(state.threads.length ? state.threads : seedThreads)
+    setThreads(state.threads)
     setReplies(state.replies)
-    setMembers(state.members.length ? state.members : seedMembers)
+    setMembers(state.members)
     setBoards(hydrateBoards(state.boards))
+    setSelectedThreadId((current) => current ?? state.threads[0]?.id ?? null)
   }
 
   async function analyzeFile(file: File) {
@@ -704,7 +704,7 @@ function App() {
     return () => window.removeEventListener('paste', handlePaste)
   }, [])
 
-  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? threads[0]
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) ?? threads[0] ?? null
   const selectedBoard = boards.find((board) => board.id === selectedThread?.boardId) ?? boards[0]
   const SelectedBoardIcon = selectedBoard.icon
   const draftAssistant = createAssistantAdvice(`${draft.title} ${draft.body} ${draft.tags}`, draft.recognition)
@@ -1065,7 +1065,7 @@ function App() {
   function goHome() {
     setActiveBoard('all')
     setQuery('')
-    setSelectedThreadId(threads[0]?.id ?? 101)
+    setSelectedThreadId(threads[0]?.id ?? null)
     setComposerOpen(false)
     setAuthOpen(false)
     setProfileMemberId(null)
@@ -1222,6 +1222,13 @@ function App() {
             </button>
           </div>
           <div className="thread-list">
+            {visibleThreads.length === 0 && (
+              <div className="empty-panel">
+                <PawPrint size={28} />
+                <strong>{apiBase && syncStatus === '正在連線後端' ? '正在載入討論資料' : '目前沒有主題'}</strong>
+                <span>{apiBase && syncStatus === '正在連線後端' ? '正在連線 Cloudflare D1' : '可以發表第一篇主題'}</span>
+              </div>
+            )}
             {visibleThreads.map((thread) => {
               const board = boards.find((item) => item.id === thread.boardId) ?? boards[0]
               const replyCount = replies.filter((reply) => reply.threadId === thread.id).length
@@ -1266,6 +1273,13 @@ function App() {
         </section>
 
         <section className="thread-detail-panel">
+          {!selectedThread && (
+            <div className="thread-detail empty-detail">
+              <PawPrint size={34} />
+              <strong>{apiBase && syncStatus === '正在連線後端' ? '資料載入中' : '尚未選擇主題'}</strong>
+              <span>{apiBase && syncStatus === '正在連線後端' ? '請稍候，正在同步論壇資料。' : '選擇主題或發表新主題開始討論。'}</span>
+            </div>
+          )}
           {selectedThread && (
             <>
               <article className="thread-detail">

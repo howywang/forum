@@ -404,6 +404,25 @@ h1 {
   padding: 12px;
 }
 
+.empty-panel,
+.empty-detail {
+  display: grid;
+  place-items: center;
+  gap: 7px;
+  min-height: 150px;
+  padding: 18px;
+  border: 1px dashed #d8d1c2;
+  border-radius: 8px;
+  color: #6b655a;
+  text-align: center;
+  background: #f7f1e5;
+}
+
+.empty-panel strong,
+.empty-detail strong {
+  color: #20201d;
+}
+
 .thread-row {
   display: grid;
   grid-template-columns: 78px minmax(0, 1fr) auto;
